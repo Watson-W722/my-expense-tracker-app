@@ -77,7 +77,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 # ==========================================
 # 1. 核心連線模組
 # ==========================================
@@ -321,7 +320,6 @@ with tab1:
     # --- 計算與顯示數據 ---
     current_month_str = datetime.now().strftime("%Y-%m")
     
-    # [關鍵] 只讀取 Transactions，不讀 Budget
     tx_df = get_data("Transactions")
 
     total_income = 0
@@ -399,8 +397,6 @@ with tab1:
 # ================= Tab 2: 收支分析 =================
 with tab2:
     st.markdown("##### 📊 收支狀況")
-    
-    # [關鍵修復] 確保這裡有讀取 Transactions 資料
     df_tx = get_data("Transactions")
 
     if df_tx.empty:
@@ -419,12 +415,10 @@ with tab2:
                 with c_sel2: end_month = st.selectbox("結束月份", all_months, index=len(all_months)-1)
                 selected_months = [m for m in all_months if start_month <= m <= end_month]
                 
-                # 支出趨勢
                 expense_trend = df_tx[(df_tx['Month'].isin(selected_months)) & (df_tx['Type'] != '收入')].groupby('Month')['Amount_SGD'].sum().reset_index()
                 expense_trend.rename(columns={'Amount_SGD': 'Amount'}, inplace=True)
                 expense_trend['Type'] = '支出'
                 
-                # 收入趨勢
                 income_trend = df_tx[(df_tx['Month'].isin(selected_months)) & (df_tx['Type'] == '收入')].groupby('Month')['Amount_SGD'].sum().reset_index()
                 income_trend.rename(columns={'Amount_SGD': 'Amount'}, inplace=True)
                 income_trend['Type'] = '收入'
@@ -520,13 +514,15 @@ with tab3:
         rec_df = get_data("Recurring")
         if not rec_df.empty:
             for idx, row in rec_df.iterrows():
-                with st.container(border=True):
-                    c_list1, c_list2 = st.columns([5, 1])
+                # [關鍵修改] 顯示格式調整
+                header_txt = f"📅 每月 {row['Day']} 號 - {row['Main_Category']} > {row['Sub_Category']} > {row['Amount_Original']} {row['Currency']}"
+                
+                with st.expander(header_txt):
+                    c_list1, c_list2 = st.columns([4, 1])
                     with c_list1:
-                        st.markdown(f"**每月 {row['Day']} 號** - {row['Main_Category']} > {row['Sub_Category']}")
-                        st.caption(f"{row['Note']} | {row['Amount_Original']} {row['Currency']} ({row['Payment_Method']})")
+                        st.write(f"📝 {row['Note']} | {row['Amount_Original']} {row['Currency']} ({row['Payment_Method']})")
                     with c_list2:
-                        if st.button("🗑️", key=f"del_rec_{idx}"):
+                        if st.button("🗑️ 刪除", key=f"del_rec_{idx}", type="primary"):
                             if delete_recurring_rule(idx):
                                 st.toast("規則已刪除")
                                 st.cache_data.clear()
