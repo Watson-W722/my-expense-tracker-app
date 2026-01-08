@@ -29,7 +29,6 @@ st.markdown("""
 
     #MainMenu {visibility: hidden;}
     
-    /* 卡片與 Metric 樣式 */
     .metric-container {
         display: flex;
         flex-wrap: wrap;
@@ -55,7 +54,7 @@ st.markdown("""
 
     div.stButton > button { border-radius: 8px; font-weight: 600; }
     
-    /* Tab 樣式微調 */
+ /* Tab 樣式微調 */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] {
         height: 50px;
@@ -110,13 +109,11 @@ def get_data(sheet_name):
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
         
-        # 防呆：確保欄位存在
         if sheet_name == "Settings":
             required_cols = ["Main_Category", "Sub_Category", "Payment_Method", "Currency"]
             for col in required_cols:
                 if col not in df.columns: df[col] = ""
         
-        # 循環收支表防呆
         if sheet_name == "Recurring":
             required_cols = ["Day", "Type", "Main_Category", "Sub_Category", "Payment_Method", "Currency", "Amount_Original", "Note", "Last_Run_Month"]
             for col in required_cols:
@@ -152,21 +149,16 @@ def save_settings_data(new_settings_df):
         return False
 
 def update_recurring_last_run(row_index, month_str):
-    """更新 Recurring 表中某行的 Last_Run_Month"""
     client = get_gspread_client()
     try:
         sheet = client.open("My_Expense_Tracker")
         worksheet = sheet.worksheet("Recurring")
-        # Google Sheet 行數從 1 開始，且第一列是標題，所以資料行是 row_index + 2
-        # Last_Run_Month 在第 9 欄 (I欄)
         worksheet.update_cell(row_index + 2, 9, month_str)
         return True
     except Exception as e:
-        print(f"Update error: {e}")
         return False
 
 def delete_recurring_rule(row_index):
-    """刪除 Recurring 表中某行"""
     client = get_gspread_client()
     try:
         sheet = client.open("My_Expense_Tracker")
@@ -214,10 +206,10 @@ def calculate_sgd(amount, currency, rates):
 
 rates = get_exchange_rates()
 
-# --- [新功能] 開機時檢查固定收支 ---
+# 檢查固定收支
 def check_and_run_recurring():
     if 'recurring_checked' in st.session_state:
-        return # 避免同一 session 重複檢查
+        return 
 
     rec_df = get_data("Recurring")
     if rec_df.empty: return
@@ -228,22 +220,17 @@ def check_and_run_recurring():
     
     executed_count = 0
     
-    # 遍歷規則
     for idx, row in rec_df.iterrows():
         try:
             last_run = str(row['Last_Run_Month']).strip()
             scheduled_day = int(row['Day'])
             
-            # 條件：(本月還沒跑過) AND (今天日期 >= 設定日期)
             if last_run != current_month_str and current_day >= scheduled_day:
-                
-                # 1. 計算當下匯率
                 amt_org = float(row['Amount_Original'])
                 curr = row['Currency']
                 amt_sgd, _ = calculate_sgd(amt_org, curr, rates)
                 
-                # 2. 寫入 Transactions
-                tx_date = today.strftime("%Y-%m-%d") # 記錄為執行當天
+                tx_date = today.strftime("%Y-%m-%d")
                 tx_row = [
                     tx_date, 
                     row['Type'], 
@@ -253,28 +240,24 @@ def check_and_run_recurring():
                     curr, 
                     amt_org, 
                     amt_sgd, 
-                    f"(自動循環) {row['Note']}", 
+                    f"(自動) {row['Note']}", 
                     str(datetime.now())
                 ]
                 
                 if append_data("Transactions", tx_row):
-                    # 3. 更新 Last_Run_Month
                     update_recurring_last_run(idx, current_month_str)
                     executed_count += 1
-                    
-        except Exception as e:
-            print(f"Auto-run error on row {idx}: {e}")
+        except Exception:
             continue
 
     if executed_count > 0:
-        st.toast(f"🤖 系統自動補登了 {executed_count} 筆本月固定收支！", icon="✅")
-        st.cache_data.clear() # 清除快取以顯示新資料
+        st.toast(f"🤖 自動補登了 {executed_count} 筆固定收支！", icon="✅")
+        st.cache_data.clear()
         time.sleep(2)
         st.rerun()
     
     st.session_state['recurring_checked'] = True
 
-# 執行檢查
 check_and_run_recurring()
 
 # --- Header ---
@@ -335,40 +318,37 @@ with tab1:
         val, _ = calculate_sgd(a, c, rates)
         st.session_state.form_amount_sgd = val
 
+    # --- 計算與顯示數據 ---
     current_month_str = datetime.now().strftime("%Y-%m")
-    budget_df = get_data("Budget")
+    
+    # [關鍵] 只讀取 Transactions，不讀 Budget
     tx_df = get_data("Transactions")
 
-    base_income = 0
-    if not budget_df.empty and 'Month' in budget_df.columns:
-        b_row = budget_df[budget_df["Month"] == current_month_str]
-        if not b_row.empty: base_income = float(b_row.iloc[0]["Income_Target"])
-
-    total_income_from_tx = 0
-    current_expense = 0
+    total_income = 0
+    total_expense = 0
     
     if not tx_df.empty and 'Date' in tx_df.columns:
         tx_df['Date'] = pd.to_datetime(tx_df['Date'], errors='coerce')
         mask = (tx_df['Date'].dt.strftime('%Y-%m') == current_month_str)
         month_tx = tx_df[mask]
         month_tx['Amount_SGD'] = pd.to_numeric(month_tx['Amount_SGD'], errors='coerce').fillna(0)
+        
         if 'Type' in month_tx.columns:
-            total_income_from_tx = month_tx[month_tx['Type'] == '收入']['Amount_SGD'].sum()
-            current_expense = month_tx[month_tx['Type'] != '收入']['Amount_SGD'].sum()
+            total_income = month_tx[month_tx['Type'] == '收入']['Amount_SGD'].sum()
+            total_expense = month_tx[month_tx['Type'] != '收入']['Amount_SGD'].sum()
     
-    final_total_income = base_income + total_income_from_tx
-    balance = final_total_income - current_expense
+    balance = total_income - total_expense
     balance_class = "val-green" if balance >= 0 else "val-red"
 
     st.markdown(f"""
     <div class="metric-container">
         <div class="metric-card">
             <span class="metric-label">本月總收入</span>
-            <span class="metric-value">${final_total_income:,.0f}</span>
+            <span class="metric-value">${total_income:,.0f}</span>
         </div>
         <div class="metric-card">
             <span class="metric-label">已支出</span>
-            <span class="metric-value">${current_expense:,.0f}</span>
+            <span class="metric-value">${total_expense:,.0f}</span>
         </div>
         <div class="metric-card">
             <span class="metric-label">剩餘可用</span>
@@ -419,16 +399,18 @@ with tab1:
 # ================= Tab 2: 收支分析 =================
 with tab2:
     st.markdown("##### 📊 收支狀況")
+    
+    # [關鍵修復] 確保這裡有讀取 Transactions 資料
+    df_tx = get_data("Transactions")
+
     if df_tx.empty:
         st.info("尚無交易資料")
     else:
-        # (同前版分析代碼，為節省篇幅直接沿用即可，此處僅保留關鍵結構)
-        # 建議複製 V9.0 的 Tab 2 完整內容填入此處
         df_tx['Date'] = pd.to_datetime(df_tx['Date'], errors='coerce')
         df_tx['Amount_SGD'] = pd.to_numeric(df_tx['Amount_SGD'], errors='coerce').fillna(0)
         df_tx['Month'] = df_tx['Date'].dt.strftime('%Y-%m')
-        if not df_budget.empty: df_budget['Income_Target'] = pd.to_numeric(df_budget['Income_Target'], errors='coerce').fillna(0)
-        all_months = sorted(list(set(df_tx['Month'].unique()) | set(df_budget['Month'].unique()))) if not df_budget.empty else sorted(df_tx['Month'].unique())
+        
+        all_months = sorted(df_tx['Month'].unique())
         
         with st.expander("📅 篩選區間", expanded=True):
             if len(all_months) > 0:
@@ -436,25 +418,62 @@ with tab2:
                 with c_sel1: start_month = st.selectbox("開始月份", all_months, index=0)
                 with c_sel2: end_month = st.selectbox("結束月份", all_months, index=len(all_months)-1)
                 selected_months = [m for m in all_months if start_month <= m <= end_month]
+                
+                # 支出趨勢
                 expense_trend = df_tx[(df_tx['Month'].isin(selected_months)) & (df_tx['Type'] != '收入')].groupby('Month')['Amount_SGD'].sum().reset_index()
                 expense_trend.rename(columns={'Amount_SGD': 'Amount'}, inplace=True)
                 expense_trend['Type'] = '支出'
-                if not df_budget.empty:
-                    budget_trend = df_budget[df_budget['Month'].isin(selected_months)][['Month', 'Income_Target']].copy()
-                    budget_trend.rename(columns={'Income_Target': 'Amount'}, inplace=True)
-                else: budget_trend = pd.DataFrame(columns=['Month', 'Amount'])
-                tx_income_trend = df_tx[(df_tx['Month'].isin(selected_months)) & (df_tx['Type'] == '收入')].groupby('Month')['Amount_SGD'].sum().reset_index()
-                tx_income_trend.rename(columns={'Amount_SGD': 'Tx_Income'}, inplace=True)
-                income_merged = pd.merge(budget_trend, tx_income_trend, on='Month', how='outer').fillna(0)
-                income_merged['Amount'] = income_merged['Amount'] + income_merged['Tx_Income']
-                income_merged = income_merged[['Month', 'Amount']]
-                income_merged['Type'] = '收入'
-                trend_data = pd.concat([expense_trend, income_merged], ignore_index=True)
+                
+                # 收入趨勢
+                income_trend = df_tx[(df_tx['Month'].isin(selected_months)) & (df_tx['Type'] == '收入')].groupby('Month')['Amount_SGD'].sum().reset_index()
+                income_trend.rename(columns={'Amount_SGD': 'Amount'}, inplace=True)
+                income_trend['Type'] = '收入'
+                
+                trend_data = pd.concat([expense_trend, income_trend], ignore_index=True)
+                
                 if not trend_data.empty:
                     import plotly.express as px
-                    fig_trend = px.bar(trend_data, x="Month", y="Amount", color="Type", barmode="group", color_discrete_map={"收入": "#2ecc71", "支出": "#ff6b6b"})
+                    fig_trend = px.bar(trend_data, x="Month", y="Amount", color="Type", barmode="group", 
+                                     color_discrete_map={"收入": "#2ecc71", "支出": "#ff6b6b"})
                     fig_trend.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin=dict(t=20, l=10, r=10, b=10))
                     st.plotly_chart(fig_trend, use_container_width=True)
+
+        st.markdown("---")
+        target_month = st.selectbox("🗓️ 查看詳細月份", sorted(all_months, reverse=True))
+        
+        month_data = df_tx[df_tx['Month'] == target_month]
+        monthly_income = month_data[month_data['Type'] == '收入']['Amount_SGD'].sum()
+        monthly_expense = month_data[month_data['Type'] != '收入']['Amount_SGD'].sum()
+        
+        st.markdown(f"""
+        <div class="metric-container">
+            <div class="metric-card" style="border-left: 5px solid #2ecc71;">
+                <span class="metric-label">總收入</span>
+                <span class="metric-value">${monthly_income:,.0f}</span>
+            </div>
+            <div class="metric-card" style="border-left: 5px solid #ff6b6b;">
+                <span class="metric-label">總支出</span>
+                <span class="metric-value">${monthly_expense:,.0f}</span>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">結餘</span>
+                <span class="metric-value">${monthly_income - monthly_expense:,.0f}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        expense_only_data = month_data[month_data['Type'] != '收入']
+        if not expense_only_data.empty:
+            pie_data = expense_only_data.groupby("Main_Category")["Amount_SGD"].sum().reset_index()
+            pie_data = pie_data[pie_data["Amount_SGD"] > 0]
+            
+            if not pie_data.empty:
+                fig_pie = px.pie(pie_data, values="Amount_SGD", names="Main_Category", hole=0.5,
+                                 color_discrete_sequence=px.colors.qualitative.Pastel)
+                fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20))
+                st.plotly_chart(fig_pie, use_container_width=True)
+            else:
+                st.info("本月支出相抵後無正向金額，無法顯示圓餅圖。")
 
 # ================= Tab 3: 設定管理 =================
 with tab3:
@@ -464,18 +483,13 @@ with tab3:
     if 'temp_pay_list' not in st.session_state: st.session_state.temp_pay_list = payment_list
     if 'temp_curr_list' not in st.session_state: st.session_state.temp_curr_list = currency_list_custom
 
-    # --- [新功能] 1. 固定收支設定 ---
+    # 1. 固定收支
     with st.expander("🔄 每月固定收支 (薪資、房租...)", expanded=True):
-        
-        # 新增規則 Popover
         with st.popover("➕ 新增固定規則", use_container_width=True):
             st.markdown("###### 設定每月自動執行的項目")
-            
-            # 使用 Session State 管理 Popover 內的暫存值，以支援自動換算
             if 'rec_currency' not in st.session_state: st.session_state.rec_currency = 'SGD'
             if 'rec_amount_org' not in st.session_state: st.session_state.rec_amount_org = 0.0
-            if 'rec_amount_sgd' not in st.session_state: st.session_state.rec_amount_sgd = 0.0
-
+            
             def on_rec_change():
                 c = st.session_state.rec_currency
                 a = st.session_state.rec_amount_org
@@ -483,30 +497,19 @@ with tab3:
                 st.session_state.rec_amount_sgd = val
 
             rec_day = st.number_input("每月幾號執行?", min_value=1, max_value=31, value=5)
-            
             c_rec1, c_rec2 = st.columns(2)
             with c_rec1: rec_main = st.selectbox("大類別", main_cat_list, key="rec_main")
             with c_rec2: rec_sub = st.selectbox("次類別", cat_mapping.get(rec_main, []), key="rec_sub")
-            
             rec_pay = st.selectbox("付款方式", payment_list, key="rec_pay")
-            
-            # 金額設定 (比照 Tab 1)
             c_r1, c_r2, c_r3 = st.columns([1.5, 2, 2])
             with c_r1: rec_curr = st.selectbox("幣別", currency_list_custom, key="rec_currency", on_change=on_rec_change)
             with c_r2: rec_amt_org = st.number_input("原幣金額", step=1.0, key="rec_amount_org", on_change=on_rec_change)
-            with c_r3: rec_amt_sgd = st.number_input("折合新幣", step=0.1, key="rec_amount_sgd") # 唯讀預覽用
-            
+            with c_r3: rec_amt_sgd = st.number_input("折合新幣", step=0.1, key="rec_amount_sgd")
             rec_note = st.text_input("備註 (例如: 房租)", key="rec_note")
             
             if st.button("儲存規則", type="primary", use_container_width=True):
                 rec_type = "收入" if rec_main == "收入" else "支出"
-                # 準備寫入 Recurring 表
-                # Day, Type, Main, Sub, Payment, Currency, Amt_Org, Note, Last_Run_Month, Status
-                new_rule = [
-                    rec_day, rec_type, rec_main, rec_sub, rec_pay, rec_curr, rec_amt_org, rec_note, 
-                    "New", # Last_Run_Month 初始值
-                    "Active"
-                ]
+                new_rule = [rec_day, rec_type, rec_main, rec_sub, rec_pay, rec_curr, rec_amt_org, rec_note, "New", "Active"]
                 if append_data("Recurring", new_rule):
                     st.success("✅ 規則已新增！")
                     st.cache_data.clear()
@@ -514,9 +517,6 @@ with tab3:
                     st.rerun()
 
         st.markdown("---")
-        st.markdown("###### 📋 現有規則清單")
-        
-        # 讀取並顯示現有規則
         rec_df = get_data("Recurring")
         if not rec_df.empty:
             for idx, row in rec_df.iterrows():
@@ -535,17 +535,14 @@ with tab3:
         else:
             st.info("目前沒有設定固定收支規則")
 
-    # 2. 類別管理 (原有功能)
+    # 2. 類別管理
     with st.expander("📂 類別與子類別管理"):
-        # ... (複製前一版 V8.0 的類別管理代碼) ...
-        # 為確保完整性，這裡填入核心邏輯
         with st.popover("➕ 新增大類", use_container_width=True):
             new_main = st.text_input("類別名稱", placeholder="例如: 醫療", label_visibility="collapsed")
             if st.button("確認新增", type="primary", use_container_width=True):
                 if new_main and new_main not in st.session_state.temp_cat_map:
                     st.session_state.temp_cat_map[new_main] = []
                     st.rerun()
-        
         for idx, main in enumerate(st.session_state.temp_cat_map.keys()):
             with st.container():
                 with st.expander(f"📁 {main}", expanded=False):
@@ -553,13 +550,11 @@ with tab3:
                     if new_main_name != main:
                         st.session_state.temp_cat_map[new_main_name] = st.session_state.temp_cat_map.pop(main)
                         st.rerun()
-                    
                     current_subs = st.session_state.temp_cat_map[new_main_name]
                     updated_subs = st.multiselect("子類", current_subs, default=current_subs, key=f"ms_{idx}", label_visibility="collapsed")
                     if len(updated_subs) < len(current_subs):
                         st.session_state.temp_cat_map[new_main_name] = updated_subs
                         st.rerun()
-                    
                     cs1, cs2 = st.columns([3, 1])
                     with cs1: new_s = st.text_input("add", key=f"ns_{idx}", label_visibility="collapsed", placeholder="新增子類別...")
                     with cs2: 
@@ -567,15 +562,13 @@ with tab3:
                             if new_s and new_s not in st.session_state.temp_cat_map[new_main_name]:
                                 st.session_state.temp_cat_map[new_main_name].append(new_s)
                                 st.rerun()
-                                
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button(f"🗑️ 刪除 {new_main_name}", key=f"dm_{idx}", type="secondary", use_container_width=True):
                         del st.session_state.temp_cat_map[new_main_name]
                         st.rerun()
 
-    # 3. 其他設定 (原有功能)
+    # 3. 其他設定
     with st.expander("💳 付款與幣別"):
-        # ... (複製前一版 V8.0 的付款與幣別代碼) ...
         st.subheader("付款方式")
         pays = st.session_state.temp_pay_list
         u_pays = st.multiselect("付款", pays, default=pays, key="mp_pay", label_visibility="collapsed")
@@ -589,7 +582,6 @@ with tab3:
                 if np and np not in st.session_state.temp_pay_list:
                     st.session_state.temp_pay_list.append(np)
                     st.rerun()
-
         st.divider()
         st.subheader("常用幣別")
         curs = st.session_state.temp_curr_list
@@ -607,19 +599,16 @@ with tab3:
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("💾 儲存所有設定", type="primary", use_container_width=True):
-        # ... (儲存邏輯同前版) ...
         rows = []
         for m, subs in st.session_state.temp_cat_map.items():
             if not subs: rows.append({"Main_Category": m, "Sub_Category": ""})
             else:
                 for s in subs: rows.append({"Main_Category": m, "Sub_Category": s})
-        
         df_cat_new = pd.DataFrame(rows)
         list_pay = st.session_state.temp_pay_list
         list_curr = st.session_state.temp_curr_list
         max_len = max(len(df_cat_new), len(list_pay), len(list_curr))
         final_df = pd.DataFrame()
-        
         if not df_cat_new.empty:
             final_df["Main_Category"] = df_cat_new["Main_Category"].reindex(range(max_len)).fillna("")
             final_df["Sub_Category"] = df_cat_new["Sub_Category"].reindex(range(max_len)).fillna("")
