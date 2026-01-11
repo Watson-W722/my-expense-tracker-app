@@ -375,7 +375,7 @@ with tab1:
                      _, rate_used = calculate_sgd(100, currency, rates)
                      if rate_used > 0: st.caption(f"匯率: {rate_used:.4f}")
 
-        note = st.text_input("備註", max_chars=20, placeholder="輸入消費內容 (限20字)...")
+        note = st.text_input("備註", max_chars=100, placeholder="輸入消費內容 (限20字)...")
         st.markdown("<br>", unsafe_allow_html=True)
         
         if st.button("確認送出記帳", type="primary", use_container_width=True):
