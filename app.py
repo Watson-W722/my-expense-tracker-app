@@ -222,7 +222,7 @@ with st.sidebar:
         "英國 (UTC+0)": 0
     }
     # 預設選 台灣
-    selected_tz_label = st.selectbox("當前位置時區", list(tz_options.key()), index=0)
+    selected_tz_label = st.selectbox("當前位置時區",  list(tz_options.keys()), index=0)
     user_offset = tz_options[selected_tz_label]
 
     st.info(f"目前日期:{get_user_date(user_offset)}")
