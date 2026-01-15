@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime, date
+from datetime import datetime, date, timedelta, timezone
 import time
 import os
 
@@ -133,6 +133,7 @@ def append_data(sheet_name, row_data):
         st.error(f"寫入錯誤: {e}")
         return False
 
+
 def save_settings_data(new_settings_df):
     client = get_gspread_client()
     try:
@@ -166,6 +167,11 @@ def delete_recurring_rule(row_index):
         return True
     except Exception:
         return False
+    
+ # --- [新功能] 取得使用者指定時區的日期 ---
+def get_user_date(offset_hours):
+    tz = timezone(timedelta(hours=offset_hours))
+    return datetime.now(tz).date()   
 
 # ==========================================
 # 2. 匯率處理模組
@@ -200,12 +206,30 @@ def calculate_sgd(amount, currency, rates):
         return amount, 0
 
 # ==========================================
-# 3. 自動化檢查與主程式
+# 3. 自動化檢查與主程式 UI 邏輯
 # ==========================================
+
+# --- [新功能] 側邊欄時區設定 ---
+with st.sidebar:
+    st.header("🌍 地區設定")
+    tz_options = {
+        "台灣/北京 (UTC+8)": 8,
+        "日本/韓國 (UTC+9)": 9,
+        "泰國/越南 (UTC+7)": 7,
+        "美東 (UTC-4)": -4,
+        "美西 (UTC-7)": -7,
+        "歐洲中部 (UTC+1)": 1,
+        "英國 (UTC+0)": 0
+    }
+    # 預設選 台灣
+    selected_tz_label = st.selectbox("當前位置時區", list(tz_option.key()), index=0)
+    user_offset = tz_options[selected_tz_label]
+
+    st.info(f"目前日期:{get_user_date(user_offset)}")
 
 rates = get_exchange_rates()
 
-# 檢查固定收支
+# 檢查固定收支 (系統邏輯維持 UTC+8，避免因旅遊導致重複扣款)
 def check_and_run_recurring():
     if 'recurring_checked' in st.session_state:
         return 
@@ -213,7 +237,9 @@ def check_and_run_recurring():
     rec_df = get_data("Recurring")
     if rec_df.empty: return
 
-    today = datetime.now()
+    # 固定收支檢查一律使用台灣時間
+    sys_tz = timezone(timedelta(hours=8))
+    today = datetime.now(sys_tz)
     current_month_str = today.strftime("%Y-%m")
     current_day = today.day
     
@@ -305,11 +331,13 @@ with tab1:
     if st.session_state.get('should_clear_input'):
         st.session_state.form_amount_org = 0.0
         st.session_state.form_amount_sgd = 0.0
+        st.session_state.form_note = "" # [修正] 清空備註
         st.session_state.should_clear_input = False
 
     if 'form_currency' not in st.session_state: st.session_state.form_currency = 'SGD'
     if 'form_amount_org' not in st.session_state: st.session_state.form_amount_org = 0.0
     if 'form_amount_sgd' not in st.session_state: st.session_state.form_amount_sgd = 0.0
+    if 'form_note' not in st.session_state: st.session_state.form_note = "" # [修正] 初始化備註
 
     def on_input_change():
         c = st.session_state.form_currency
@@ -318,6 +346,8 @@ with tab1:
         st.session_state.form_amount_sgd = val
 
     # --- 計算與顯示數據 ---
+    # 這裡的月份計算，建議跟隨使用者選擇的時區，讓他看到「當地」的本月狀況
+    user_today = get_user_date(user_offset)
     current_month_str = datetime.now().strftime("%Y-%m")
     
     tx_df = get_data("Transactions")
@@ -358,7 +388,7 @@ with tab1:
     with st.container():
         st.markdown("##### ✍️ 新增交易")
         c1, c2 = st.columns([1, 1])
-        with c1: date_input = st.date_input("日期", date.today())
+        with c1: date_input = st.date_input("日期", user_today) # [修正] 使用者選定時區的日期
         with c2: payment = st.selectbox("付款方式", payment_list)
         c3, c4 = st.columns([1, 1])
         with c3: main_cat = st.selectbox("大類別", main_cat_list, key="input_main_cat")
@@ -374,22 +404,26 @@ with tab1:
                 if currency != "SGD" and amount_org != 0:
                      _, rate_used = calculate_sgd(100, currency, rates)
                      if rate_used > 0: st.caption(f"匯率: {rate_used:.4f}")
-
-        note = st.text_input("備註", max_chars=100, placeholder="輸入消費內容 (限20字)...")
+        
+        # [修正] 備註綁定 key 
+        note = st.text_input("備註", max_chars=100, placeholder="輸入消費內容 (限20字)...", key="form_note")
         st.markdown("<br>", unsafe_allow_html=True)
         
         if st.button("確認送出記帳", type="primary", use_container_width=True):
             if amount_sgd == 0:
                 st.error("金額不能為 0")
             else:
-                with st.spinner('📡 資料寫入 Google Sheet 中...'):
+                with st.spinner('📡 處理中...'):
                     tx_type = "收入" if main_cat == "收入" else "支出"
-                    row = [str(date_input), tx_type, main_cat, sub_cat, payment, currency, amount_org, amount_sgd, note, str(datetime.now())]
+
+                    # 記錄時使用「當地日期」但加上「系統執行時間」的時分秒
+                    sys_now = datetime.now()
+                    row = [str(date_input), tx_type, main_cat, sub_cat, payment, currency, amount_org, amount_sgd, note, str(sys_now)]
                     if append_data("Transactions", row):
                         st.success(f"✅ {tx_type}已記錄 ${amount_sgd}，更新中...")
                         st.session_state['should_clear_input'] = True
                         st.cache_data.clear()
-                        time.sleep(3)
+                        time.sleep(1)
                         st.rerun()
                     else:
                         st.error("❌ 寫入失敗")
