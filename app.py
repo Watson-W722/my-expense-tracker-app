@@ -213,7 +213,7 @@ def calculate_sgd(amount, currency, rates):
 with st.sidebar:
     st.header("🌍 地區設定")
     tz_options = {
-        "台灣/北京 (UTC+8)": 8,
+        "台灣/新加坡 (UTC+8)": 8,
         "日本/韓國 (UTC+9)": 9,
         "泰國/越南 (UTC+7)": 7,
         "美東 (UTC-4)": -4,
