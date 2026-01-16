@@ -47,17 +47,28 @@ st.markdown("""
     .metric-value { font-size: 1.6rem; font-weight: 700; color: #2c3e50; }
     .val-green { color: #2ecc71; }
     .val-red { color: #e74c3c; }
+        /* 按鈕樣式 */
     div.stButton > button { border-radius: 8px; font-weight: 600; }
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    
+    /* Tab 樣式微調 */
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
         background-color: white;
         border-radius: 8px 8px 0 0;
+        gap: 1px;
+        padding: 10px 20px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #6c757d;
         border: 1px solid #dee2e6;
         border-bottom: none;
     }
     .stTabs [aria-selected="true"] {
-        border-top: 3px solid #0d6efd;
+        background-color: #ffffff;
         color: #0d6efd !important;
+        border-top: 3px solid #0d6efd;
     }
     .login-container {
         max-width: 500px;
