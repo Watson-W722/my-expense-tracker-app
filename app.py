@@ -153,11 +153,7 @@ def show_login_screen():
                 else:
                     st.warning("請輸入名稱")
             with st.expander("❓ 如何開始？"):
-                st.markdown("""
-                1. 建立一個 Google Sheet 副本。
-                2. 點擊右上角 **「共用」**。
-                3. 將此 Email 加入為 **「編輯者」**：
-                """)
+                st.markdown("請將您的 Google Sheet 分享給以下 Email (編輯者)：")
                 if "gcp_service_account" in st.secrets:
                     st.code(st.secrets["gcp_service_account"]["client_email"], language="text")
 
@@ -175,7 +171,6 @@ def get_data(worksheet_name, target_sheet_name):
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
         
-        # [修改] Settings 加入 Default_Currency
         if worksheet_name == "Settings":
             required_cols = ["Main_Category", "Sub_Category", "Payment_Method", "Currency", "Default_Currency"]
             for col in required_cols:
@@ -287,7 +282,7 @@ with st.sidebar:
         st.rerun()
         
     st.divider()
-    tz_options = {"台灣/北京 (UTC+8)": 8, "日本/韓國 (UTC+9)": 9, "泰國 (UTC+7)": 7, "美東 (UTC-4)": -4, "歐洲 (UTC+1)": 1}
+    tz_options = {"台灣/新加坡 (UTC+8)": 8, "日本/韓國 (UTC+9)": 9, "泰國 (UTC+7)": 7, "美東 (UTC-4)": -4, "歐洲 (UTC+1)": 1}
     selected_tz_label = st.selectbox("當前位置時區", list(tz_options.keys()), index=0)
     user_offset = tz_options[selected_tz_label]
     st.info(f"日期：{get_user_date(user_offset)}")
@@ -346,12 +341,12 @@ with c_logo:
 with c_title:
     st.markdown("<h2 style='margin-bottom: 0; padding-top: 10px;'>我的記帳本</h2>", unsafe_allow_html=True)
 
-# --- 讀取設定 (含 Default Currency) ---
+# --- 讀取設定 (邏輯修改區) ---
 settings_df = get_data("Settings", CURRENT_SHEET_NAME)
 cat_mapping = {}     
 payment_list = []
 currency_list_custom = []
-default_currency_setting = "SGD" # 系統預設
+default_currency_setting = "TWD" # [預設值改為 TWD]
 
 if not settings_df.empty:
     if "Main_Category" in settings_df.columns and "Sub_Category" in settings_df.columns:
@@ -366,9 +361,9 @@ if not settings_df.empty:
     if "Payment_Method" in settings_df.columns:
         payment_list = settings_df[settings_df["Payment_Method"] != ""]["Payment_Method"].unique().tolist()
     
+    # [修正] 讀取幣別清單，若空則預設只有 TWD
     if "Currency" in settings_df.columns:
         currency_list_custom = settings_df[settings_df["Currency"] != ""]["Currency"].unique().tolist()
-    else: currency_list_custom = ["SGD", "TWD", "USD"]
     
     # [新增] 讀取預設幣別
     if "Default_Currency" in settings_df.columns:
@@ -376,13 +371,22 @@ if not settings_df.empty:
         if saved_defaults:
             default_currency_setting = saved_defaults[0]
 
+# [修正] 若清單為空，給 TWD；若不為空，保留原樣
 if not cat_mapping: 
     cat_mapping = {"收入": ["薪資"], "食": ["早餐"]}
 elif "收入" not in cat_mapping:
     cat_mapping["收入"] = ["薪資"]
 
 if not payment_list: payment_list = ["現金"]
-if not currency_list_custom: currency_list_custom = ["SGD", "TWD"]
+
+# [關鍵修改] 幣別預設值邏輯
+if not currency_list_custom: 
+    currency_list_custom = ["TWD"]
+
+# 確保 Default Currency 在清單中，若不在，則預設為清單第一個
+if default_currency_setting not in currency_list_custom:
+    default_currency_setting = currency_list_custom[0]
+
 main_cat_list = list(cat_mapping.keys())
 
 # --- 頁籤 ---
@@ -460,7 +464,6 @@ with tab1:
             st.caption("💰 金額設定")
             c5, c6, c7 = st.columns([1.5, 2, 2])
             
-            # [修正] 預設選中設定好的幣別
             try:
                 curr_index = currency_list_custom.index(default_currency_setting)
             except ValueError:
@@ -577,7 +580,7 @@ with tab3:
     if 'temp_cat_map' not in st.session_state: st.session_state.temp_cat_map = cat_mapping
     if 'temp_pay_list' not in st.session_state: st.session_state.temp_pay_list = payment_list
     if 'temp_curr_list' not in st.session_state: st.session_state.temp_curr_list = currency_list_custom
-    # [新增] 預設幣別 Session State
+    # 預設幣別 Session State
     if 'temp_default_curr' not in st.session_state: st.session_state.temp_default_curr = default_currency_setting
 
     # 1. 固定收支
@@ -694,11 +697,9 @@ with tab3:
                     st.session_state.temp_curr_list.append(nc)
                     st.rerun()
                     
-        # [新增] 設定預設幣別 UI
         st.markdown("<br>", unsafe_allow_html=True)
         st.caption("✨ 設定每日記帳的預設幣別：")
         
-        # 找出目前的 index，避免報錯
         try:
             def_idx = st.session_state.temp_curr_list.index(st.session_state.temp_default_curr)
         except ValueError:
@@ -735,7 +736,6 @@ with tab3:
         final_df["Payment_Method"] = pd.Series(list_pay).reindex(range(max_len)).fillna("")
         final_df["Currency"] = pd.Series(list_curr).reindex(range(max_len)).fillna("")
         
-        # [新增] 寫入預設幣別 (放在第一列即可)
         final_df["Default_Currency"] = ""
         if len(final_df) > 0:
             final_df.at[0, "Default_Currency"] = st.session_state.temp_default_curr
@@ -743,7 +743,6 @@ with tab3:
         if save_settings_data(final_df, CURRENT_SHEET_NAME):
             st.toast("設定已儲存！", icon="💾")
             st.cache_data.clear()
-            # 刪除 session 讓它重抓
             del st.session_state.temp_cat_map
             del st.session_state.temp_default_curr 
             time.sleep(1)
