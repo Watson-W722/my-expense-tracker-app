@@ -479,20 +479,20 @@ tab1, tab2, tab3 = st.tabs(["📝 每日記帳", "📊 收支分析", "⚙️ �
 with tab1:
     if st.session_state.get('should_clear_input'):
         st.session_state.form_amount_org = 0.0
-        st.session_state.form_amount_sgd = 0.0
+        st.session_state.form_amount_def = 0.0
         st.session_state.form_note = ""
         st.session_state.should_clear_input = False
 
     if 'form_currency' not in st.session_state: st.session_state.form_currency = default_currency_setting
     if 'form_amount_org' not in st.session_state: st.session_state.form_amount_org = 0.0
-    if 'form_amount_sgd' not in st.session_state: st.session_state.form_amount_sgd = 0.0
+    if 'form_amount_def' not in st.session_state: st.session_state.form_amount_def = 0.0
     if 'form_note' not in st.session_state: st.session_state.form_note = ""
 
     def on_input_change():
         c = st.session_state.form_currency
         a = st.session_state.form_amount_org
         val, _ = calculate_exchange(a, c, default_currency_setting, rates)
-        st.session_state.form_amount_sgd = val
+        st.session_state.form_amount_def = val
 
     user_today = get_user_date(user_offset)
     current_month_str = user_today.strftime("%Y-%m")
@@ -507,13 +507,13 @@ with tab1:
         mask = (tx_df['Date'].dt.strftime('%Y-%m') == current_month_str)
         month_tx = tx_df[mask]
         
-        # [關鍵修正] 雖然 Google Sheet 欄位名叫 Amount_SGD，但我們把它當作 Default Currency Amount
+        # [關鍵修正] 雖然 Google Sheet 欄位名叫 AAmount_Def，但我們把它當作 Default Currency Amount
         # 這裡不需要再換算，直接讀取
-        month_tx['Amount_SGD'] = pd.to_numeric(month_tx['Amount_SGD'], errors='coerce').fillna(0)
+        month_tx['Amount_Def'] = pd.to_numeric(month_tx['Amount_Def'], errors='coerce').fillna(0)
         
         if 'Type' in month_tx.columns:
-            total_income = month_tx[month_tx['Type'] == '收入']['Amount_SGD'].sum()
-            total_expense = month_tx[month_tx['Type'] != '收入']['Amount_SGD'].sum()
+            total_income = month_tx[month_tx['Type'] == '收入']['Amount_Def'].sum()
+            total_expense = month_tx[month_tx['Type'] != '收入']['Amount_Def'].sum()
     
     balance = total_income - total_expense
     balance_class = "val-green" if balance >= 0 else "val-red"
@@ -557,7 +557,7 @@ with tab1:
             with c5: currency = st.selectbox("幣別", currency_list_custom, index=curr_index, key="form_currency", on_change=on_input_change)
             with c6: amount_org = st.number_input(f"金額 ({currency})", step=1.0, key="form_amount_org", on_change=on_input_change)
             with c7: 
-                amount_sgd = st.number_input(f"折合 {default_currency_setting}", step=0.1, key="form_amount_sgd")
+                amount_def = st.number_input(f"折合 {default_currency_setting}", step=0.1, key="form_amount_def")
                 if currency != default_currency_setting and amount_org != 0:
                      _, rate_used = calculate_exchange(100, currency, default_currency_setting, rates)
                      if rate_used > 0: st.caption(f"匯率: {rate_used:.4f}")
@@ -566,16 +566,16 @@ with tab1:
         st.markdown("<br>", unsafe_allow_html=True)
         
         if st.button("確認送出記帳", type="primary", use_container_width=True):
-            if amount_sgd == 0:
+            if amount_def == 0:
                 st.error("金額不能為 0")
             else:
                 with st.spinner('📡 資料寫入中...'):
                     tx_type = "收入" if main_cat == "收入" else "支出"
                     sys_now = datetime.now()
-                    row = [str(date_input), tx_type, main_cat, sub_cat, payment, currency, amount_org, amount_sgd, note, str(sys_now)]
+                    row = [str(date_input), tx_type, main_cat, sub_cat, payment, currency, amount_org, amount_def, note, str(sys_now)]
                     
                     if append_data("Transactions", row, CURRENT_SHEET_SOURCE):
-                        st.success(f"✅ {tx_type}已記錄 ${amount_sgd}！")
+                        st.success(f"✅ {tx_type}已記錄 ${amount_def}！")
                         st.session_state['should_clear_input'] = True
                         st.cache_data.clear()
                         time.sleep(1)
@@ -592,7 +592,7 @@ with tab2:
         st.info("尚無交易資料")
     else:
         df_tx['Date'] = pd.to_datetime(df_tx['Date'], errors='coerce')
-        df_tx['Amount_SGD'] = pd.to_numeric(df_tx['Amount_SGD'], errors='coerce').fillna(0)
+        df_tx['Amount_Def'] = pd.to_numeric(df_tx['Amount_Def'], errors='coerce').fillna(0)
         df_tx['Month'] = df_tx['Date'].dt.strftime('%Y-%m')
         
         all_months = sorted(df_tx['Month'].unique())
@@ -604,12 +604,12 @@ with tab2:
                 with c_sel2: end_month = st.selectbox("結束月份", all_months, index=len(all_months)-1)
                 selected_months = [m for m in all_months if start_month <= m <= end_month]
                 
-                expense_trend = df_tx[(df_tx['Month'].isin(selected_months)) & (df_tx['Type'] != '收入')].groupby('Month')['Amount_SGD'].sum().reset_index()
-                expense_trend.rename(columns={'Amount_SGD': 'Amount'}, inplace=True)
+                expense_trend = df_tx[(df_tx['Month'].isin(selected_months)) & (df_tx['Type'] != '收入')].groupby('Month')['Amount_Def'].sum().reset_index()
+                expense_trend.rename(columns={'Amount_Def': 'Amount'}, inplace=True)
                 expense_trend['Type'] = '支出'
                 
-                income_trend = df_tx[(df_tx['Month'].isin(selected_months)) & (df_tx['Type'] == '收入')].groupby('Month')['Amount_SGD'].sum().reset_index()
-                income_trend.rename(columns={'Amount_SGD': 'Amount'}, inplace=True)
+                income_trend = df_tx[(df_tx['Month'].isin(selected_months)) & (df_tx['Type'] == '收入')].groupby('Month')['Amount_Def'].sum().reset_index()
+                income_trend.rename(columns={'Amount_Def': 'Amount'}, inplace=True)
                 income_trend['Type'] = '收入'
                 
                 trend_data = pd.concat([expense_trend, income_trend], ignore_index=True)
@@ -625,8 +625,8 @@ with tab2:
         target_month = st.selectbox("🗓️ 查看詳細月份", sorted(all_months, reverse=True))
         
         month_data = df_tx[df_tx['Month'] == target_month]
-        monthly_income = month_data[month_data['Type'] == '收入']['Amount_SGD'].sum()
-        monthly_expense = month_data[month_data['Type'] != '收入']['Amount_SGD'].sum()
+        monthly_income = month_data[month_data['Type'] == '收入']['Amount_Def'].sum()
+        monthly_expense = month_data[month_data['Type'] != '收入']['Amount_Def'].sum()
         
         st.markdown(f"""
         <div class="metric-container">
@@ -647,11 +647,11 @@ with tab2:
         
         expense_only_data = month_data[month_data['Type'] != '收入']
         if not expense_only_data.empty:
-            pie_data = expense_only_data.groupby("Main_Category")["Amount_SGD"].sum().reset_index()
-            pie_data = pie_data[pie_data["Amount_SGD"] > 0]
+            pie_data = expense_only_data.groupby("Main_Category")["Amount_Def"].sum().reset_index()
+            pie_data = pie_data[pie_data["Amount_Def"] > 0]
             
             if not pie_data.empty:
-                fig_pie = px.pie(pie_data, values="Amount_SGD", names="Main_Category", hole=0.5,
+                fig_pie = px.pie(pie_data, values="Amount_Def", names="Main_Category", hole=0.5,
                                  color_discrete_sequence=px.colors.qualitative.Pastel)
                 fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20))
                 st.plotly_chart(fig_pie, use_container_width=True)
@@ -678,7 +678,7 @@ with tab3:
                 c = st.session_state.rec_currency
                 a = st.session_state.rec_amount_org
                 val, _ = calculate_exchange(a, c, default_currency_setting, rates)
-                st.session_state.rec_amount_sgd = val
+                st.session_state.rec_amount_def = val
 
             rec_day = st.number_input("每月幾號執行?", min_value=1, max_value=31, value=5)
             c_rec1, c_rec2 = st.columns(2)
@@ -688,7 +688,7 @@ with tab3:
             c_r1, c_r2, c_r3 = st.columns([1.5, 2, 2])
             with c_r1: rec_curr = st.selectbox("幣別", currency_list_custom, index=curr_index if 'curr_index' in locals() else 0, key="rec_currency", on_change=on_rec_change)
             with c_r2: rec_amt_org = st.number_input("原幣金額", step=1.0, key="rec_amount_org", on_change=on_rec_change)
-            with c_r3: rec_amt_sgd = st.number_input(f"折合 {default_currency_setting}", step=0.1, key="rec_amount_sgd")
+            with c_r3: rec_amt_sgd = st.number_input(f"折合 {default_currency_setting}", step=0.1, key="rec_amount_def")
             rec_note = st.text_input("備註 (例如: 房租)", key="rec_note")
             
             if st.button("儲存規則", type="primary", use_container_width=True):
