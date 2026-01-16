@@ -47,30 +47,18 @@ st.markdown("""
     .metric-value { font-size: 1.6rem; font-weight: 700; color: #2c3e50; }
     .val-green { color: #2ecc71; }
     .val-red { color: #e74c3c; }
-    /* 按鈕樣式 */
     div.stButton > button { border-radius: 8px; font-weight: 600; }
-    
-    /* Tab 樣式微調 */
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
         background-color: white;
         border-radius: 8px 8px 0 0;
-        gap: 1px;
-        padding: 10px 20px;
-        font-size: 1.1rem;
-        font-weight: 600;
-        color: #6c757d;
         border: 1px solid #dee2e6;
         border-bottom: none;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #ffffff;
-        color: #0d6efd !important;
         border-top: 3px solid #0d6efd;
+        color: #0d6efd !important;
     }
-    /* 登入畫面樣式 */
     .login-container {
         max-width: 500px;
         margin: 50px auto;
@@ -104,49 +92,40 @@ def get_gspread_client():
     return gspread.authorize(creds)
 
 # ==========================================
-# [關鍵新功能] 動態連接管理機制
+# 動態連接驗證機制
 # ==========================================
 def check_connection():
-    """
-    檢查是否已連接到 Google Sheet。
-    優先順序：
-    1. Session State (當前工作階段)
-    2. URL Query Params (網址參數 ?sheet=xxx)
-    """
-    
     # 1. 嘗試從 URL 獲取
-    # 注意：Streamlit 新版使用 st.query_params
     url_sheet_name = st.query_params.get("sheet", None)
     
     if "current_sheet_name" not in st.session_state:
         st.session_state.current_sheet_name = url_sheet_name
 
-    # 2. 如果還是沒有名稱，顯示登入畫面
+    # 2. 如果沒有名稱，顯示登入畫面
     if not st.session_state.current_sheet_name:
         show_login_screen()
-        st.stop() # 停止執行下方程式碼
+        st.stop()
 
-    # 3. 有名稱了，嘗試連線驗證
+    # 3. 嘗試連線
     client = get_gspread_client()
     if not client:
-        st.error("❌ 系統錯誤：無法讀取機器人金鑰 (Secrets)。")
+        st.error("❌ 系統錯誤：無法讀取機器人金鑰。")
         st.stop()
 
     try:
-        # 嘗試開啟試算表
-        sheet = client.open(st.session_state.current_sheet_name)
-        # 若成功，更新 URL 讓使用者可以存書籤
-        st.query_params["sheet"] = st.session_state.current_sheet_name
-        return sheet
-    except Exception as e:
-        # 連線失敗 (可能檔名打錯，或沒分享給機器人)
-        st.error(f"❌ 連線失敗：找不到名為「{st.session_state.current_sheet_name}」的試算表。")
-        st.warning("請確認：\n1. Google Sheet 名稱是否完全正確？\n2. 是否已將試算表「共用」給機器人 Email？")
+        # 這裡不打開 sheet 物件，只驗證名稱是否有效
+        # 實際打開動作留給 get_data 做，以便做 Cache key 分離
+        client.open(st.session_state.current_sheet_name)
         
-        # 顯示機器人 Email 方便複製
+        # 更新 URL
+        st.query_params["sheet"] = st.session_state.current_sheet_name
+        return st.session_state.current_sheet_name
+    except Exception as e:
+        st.error(f"❌ 連線失敗：找不到名為「{st.session_state.current_sheet_name}」的試算表。")
+        st.warning("請確認 Google Sheet 名稱正確，且已分享給機器人 Email。")
+        
         if "gcp_service_account" in st.secrets:
-            bot_email = st.secrets["gcp_service_account"]["client_email"]
-            st.code(bot_email, language="text")
+            st.code(st.secrets["gcp_service_account"]["client_email"], language="text")
             
         if st.button("⬅️ 返回重新輸入"):
             st.session_state.current_sheet_name = None
@@ -166,7 +145,6 @@ def show_login_screen():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             sheet_input = st.text_input("Google Sheet 檔案名稱", placeholder="例如：王小明的記帳本")
-            
             if st.button("🚀 連接帳本", type="primary", use_container_width=True):
                 if sheet_input:
                     st.session_state.current_sheet_name = sheet_input
@@ -175,34 +153,23 @@ def show_login_screen():
                     st.warning("請輸入名稱")
             
             with st.expander("❓ 如何開始？"):
-                st.markdown("""
-                1. 建立一個 Google Sheet 副本。
-                2. 點擊右上角 **「共用」**。
-                3. 將此 Email 加入為 **「編輯者」**：
-                """)
+                st.markdown("請將您的 Google Sheet 分享給以下 Email (編輯者)：")
                 if "gcp_service_account" in st.secrets:
                     st.code(st.secrets["gcp_service_account"]["client_email"], language="text")
-                else:
-                    st.warning("尚未設定 Secrets 金鑰")
+
+# 執行連線檢查，取得當前帳本名稱
+CURRENT_SHEET_NAME = check_connection()
 
 # ==========================================
-# 程式進入點：先檢查連線
+# 資料讀寫函式 (安全性修正：將帳本名稱加入參數)
 # ==========================================
-# 這個函式會確保只有連線成功才會往下執行，並回傳 sheet 物件
-active_sheet_obj = check_connection()
 
-# 為了讓後面的函式能拿到目前的 sheet 名稱
-CURRENT_SHEET_NAME = st.session_state.current_sheet_name
-
-# ==========================================
-# 資料讀寫函式 (修改為使用動態名稱)
-# ==========================================
+# [修正] 參數加入 target_sheet_name，確保 Cache Key 對應到不同帳本
 @st.cache_data
-def get_data(worksheet_name):
+def get_data(worksheet_name, target_sheet_name):
     client = get_gspread_client()
     try:
-        # 使用全域變數 CURRENT_SHEET_NAME
-        sheet = client.open(CURRENT_SHEET_NAME)
+        sheet = client.open(target_sheet_name)
         worksheet = sheet.worksheet(worksheet_name)
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
@@ -221,10 +188,10 @@ def get_data(worksheet_name):
     except Exception:
         return pd.DataFrame()
 
-def append_data(worksheet_name, row_data):
+def append_data(worksheet_name, row_data, target_sheet_name):
     client = get_gspread_client()
     try:
-        sheet = client.open(CURRENT_SHEET_NAME)
+        sheet = client.open(target_sheet_name)
         worksheet = sheet.worksheet(worksheet_name)
         worksheet.append_row(row_data)
         return True
@@ -232,10 +199,10 @@ def append_data(worksheet_name, row_data):
         st.error(f"寫入錯誤: {e}")
         return False
 
-def save_settings_data(new_settings_df):
+def save_settings_data(new_settings_df, target_sheet_name):
     client = get_gspread_client()
     try:
-        sheet = client.open(CURRENT_SHEET_NAME)
+        sheet = client.open(target_sheet_name)
         worksheet = sheet.worksheet("Settings")
         worksheet.clear()
         new_settings_df = new_settings_df.fillna("")
@@ -246,20 +213,20 @@ def save_settings_data(new_settings_df):
         st.error(f"儲存設定失敗: {e}")
         return False
 
-def update_recurring_last_run(row_index, month_str):
+def update_recurring_last_run(row_index, month_str, target_sheet_name):
     client = get_gspread_client()
     try:
-        sheet = client.open(CURRENT_SHEET_NAME)
+        sheet = client.open(target_sheet_name)
         worksheet = sheet.worksheet("Recurring")
         worksheet.update_cell(row_index + 2, 9, month_str)
         return True
     except Exception as e:
         return False
 
-def delete_recurring_rule(row_index):
+def delete_recurring_rule(row_index, target_sheet_name):
     client = get_gspread_client()
     try:
-        sheet = client.open(CURRENT_SHEET_NAME)
+        sheet = client.open(target_sheet_name)
         worksheet = sheet.worksheet("Recurring")
         worksheet.delete_rows(row_index + 2)
         return True
@@ -307,32 +274,23 @@ def calculate_sgd(amount, currency, rates):
 # 3. 主程式 UI 邏輯
 # ==========================================
 
-# --- 側邊欄時區設定 ---
+# --- 側邊欄 ---
 with st.sidebar:
     st.header("🌍 地區設定")
-    # 顯示目前連接的帳本名稱
     st.success(f"📘 帳本：{CURRENT_SHEET_NAME}")
     
-    # 登出按鈕
     if st.button("🚪 切換帳本 (登出)"):
         st.session_state.current_sheet_name = None
         st.query_params.clear()
+        # 登出時也清除快取，避免殘留
+        st.cache_data.clear()
         st.rerun()
         
     st.divider()
-    
-    tz_options = {
-        "台灣/北京 (UTC+8)": 8,
-        "日本/韓國 (UTC+9)": 9,
-        "泰國/越南 (UTC+7)": 7,
-        "美東 (UTC-4)": -4,
-        "美西 (UTC-7)": -7,
-        "歐洲中部 (UTC+1)": 1,
-        "英國 (UTC+0)": 0
-    }
+    tz_options = {"台灣/北京 (UTC+8)": 8, "日本/韓國 (UTC+9)": 9, "泰國 (UTC+7)": 7, "美東 (UTC-4)": -4, "歐洲 (UTC+1)": 1}
     selected_tz_label = st.selectbox("當前位置時區", list(tz_options.keys()), index=0)
     user_offset = tz_options[selected_tz_label]
-    st.info(f"目前日期：{get_user_date(user_offset)}")
+    st.info(f"日期：{get_user_date(user_offset)}")
 
 rates = get_exchange_rates()
 
@@ -341,7 +299,8 @@ def check_and_run_recurring():
     if 'recurring_checked' in st.session_state:
         return 
 
-    rec_df = get_data("Recurring")
+    # [修正] 傳入帳本名稱
+    rec_df = get_data("Recurring", CURRENT_SHEET_NAME)
     if rec_df.empty: return
 
     sys_tz = timezone(timedelta(hours=8))
@@ -362,21 +321,11 @@ def check_and_run_recurring():
                 amt_sgd, _ = calculate_sgd(amt_org, curr, rates)
                 
                 tx_date = today.strftime("%Y-%m-%d")
-                tx_row = [
-                    tx_date, 
-                    row['Type'], 
-                    row['Main_Category'], 
-                    row['Sub_Category'], 
-                    row['Payment_Method'], 
-                    curr, 
-                    amt_org, 
-                    amt_sgd, 
-                    f"(自動) {row['Note']}", 
-                    str(datetime.now(sys_tz))
-                ]
+                tx_row = [tx_date, row['Type'], row['Main_Category'], row['Sub_Category'], row['Payment_Method'], curr, amt_org, amt_sgd, f"(自動) {row['Note']}", str(datetime.now(sys_tz))]
                 
-                if append_data("Transactions", tx_row):
-                    update_recurring_last_run(idx, current_month_str)
+                # [修正] 傳入帳本名稱
+                if append_data("Transactions", tx_row, CURRENT_SHEET_NAME):
+                    update_recurring_last_run(idx, current_month_str, CURRENT_SHEET_NAME)
                     executed_count += 1
         except Exception:
             continue
@@ -400,7 +349,8 @@ with c_title:
     st.markdown("<h2 style='margin-bottom: 0; padding-top: 10px;'>我的記帳本</h2>", unsafe_allow_html=True)
 
 # --- 讀取設定 ---
-settings_df = get_data("Settings")
+# [修正] 傳入帳本名稱，確保讀到對的 Settings
+settings_df = get_data("Settings", CURRENT_SHEET_NAME)
 cat_mapping = {}     
 payment_list = []
 currency_list_custom = []
@@ -421,9 +371,9 @@ if not settings_df.empty:
     else: currency_list_custom = ["SGD", "TWD", "USD"]
 
 if not cat_mapping: 
-    cat_mapping = {"收入": ["薪資", "獎金"], "食": ["早餐"], "行": ["捷運"]}
+    cat_mapping = {"收入": ["薪資"], "食": ["早餐"]}
 elif "收入" not in cat_mapping:
-    cat_mapping["收入"] = ["薪資", "獎金"]
+    cat_mapping["收入"] = ["薪資"]
 
 if not payment_list: payment_list = ["現金"]
 if not currency_list_custom: currency_list_custom = ["SGD", "TWD"]
@@ -454,7 +404,8 @@ with tab1:
     user_today = get_user_date(user_offset)
     current_month_str = user_today.strftime("%Y-%m")
     
-    tx_df = get_data("Transactions")
+    # [修正] 傳入帳本名稱
+    tx_df = get_data("Transactions", CURRENT_SHEET_NAME)
 
     total_income = 0
     total_expense = 0
@@ -517,12 +468,14 @@ with tab1:
             if amount_sgd == 0:
                 st.error("金額不能為 0")
             else:
-                with st.spinner('📡 資料寫入 Google Sheet 中...'):
+                with st.spinner('📡 資料寫入中...'):
                     tx_type = "收入" if main_cat == "收入" else "支出"
                     sys_now = datetime.now()
                     row = [str(date_input), tx_type, main_cat, sub_cat, payment, currency, amount_org, amount_sgd, note, str(sys_now)]
-                    if append_data("Transactions", row):
-                        st.success(f"✅ {tx_type}已記錄 ${amount_sgd}，更新中...")
+                    
+                    # [修正] 傳入帳本名稱
+                    if append_data("Transactions", row, CURRENT_SHEET_NAME):
+                        st.success(f"✅ {tx_type}已記錄 ${amount_sgd}！")
                         st.session_state['should_clear_input'] = True
                         st.cache_data.clear()
                         time.sleep(1)
@@ -533,7 +486,8 @@ with tab1:
 # ================= Tab 2: 收支分析 =================
 with tab2:
     st.markdown("##### 📊 收支狀況")
-    df_tx = get_data("Transactions")
+    # [修正] 傳入帳本名稱
+    df_tx = get_data("Transactions", CURRENT_SHEET_NAME)
 
     if df_tx.empty:
         st.info("尚無交易資料")
@@ -640,14 +594,16 @@ with tab3:
             if st.button("儲存規則", type="primary", use_container_width=True):
                 rec_type = "收入" if rec_main == "收入" else "支出"
                 new_rule = [rec_day, rec_type, rec_main, rec_sub, rec_pay, rec_curr, rec_amt_org, rec_note, "New", "Active"]
-                if append_data("Recurring", new_rule):
+                # [修正] 傳入帳本名稱
+                if append_data("Recurring", new_rule, CURRENT_SHEET_NAME):
                     st.success("✅ 規則已新增！")
                     st.cache_data.clear()
                     time.sleep(1)
                     st.rerun()
 
         st.markdown("---")
-        rec_df = get_data("Recurring")
+        # [修正] 傳入帳本名稱
+        rec_df = get_data("Recurring", CURRENT_SHEET_NAME)
         if not rec_df.empty:
             for idx, row in rec_df.iterrows():
                 header_txt = f"📅 每月 {row['Day']} 號 - {row['Main_Category']} > {row['Sub_Category']} > {row['Amount_Original']} {row['Currency']}"
@@ -657,7 +613,8 @@ with tab3:
                         st.write(f"📝 {row['Note']} | {row['Amount_Original']} {row['Currency']} ({row['Payment_Method']})")
                     with c_list2:
                         if st.button("🗑️ 刪除", key=f"del_rec_{idx}", type="primary"):
-                            if delete_recurring_rule(idx):
+                            # [修正] 傳入帳本名稱
+                            if delete_recurring_rule(idx, CURRENT_SHEET_NAME):
                                 st.toast("規則已刪除")
                                 st.cache_data.clear()
                                 time.sleep(1)
@@ -748,7 +705,8 @@ with tab3:
         final_df["Payment_Method"] = pd.Series(list_pay).reindex(range(max_len)).fillna("")
         final_df["Currency"] = pd.Series(list_curr).reindex(range(max_len)).fillna("")
         
-        if save_settings_data(final_df):
+        # [修正] 傳入帳本名稱
+        if save_settings_data(final_df, CURRENT_SHEET_NAME):
             st.toast("設定已儲存！", icon="💾")
             st.cache_data.clear()
             del st.session_state.temp_cat_map
