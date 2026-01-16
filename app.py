@@ -103,7 +103,11 @@ def get_data(sheet_name):
     client = get_gspread_client()
     if not client: return pd.DataFrame()
     try:
-        sheet = client.open("My_Expense_Tracker")
+        # 原本：sheet = client.open("My_Expense_Tracker")
+
+        # 改成：
+        sheet_name = st.secrets.get("spreadsheet_name", "My_Expense_Tracker")
+        sheet = client.open(sheet_name)
         worksheet = sheet.worksheet(sheet_name)
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
@@ -125,7 +129,11 @@ def get_data(sheet_name):
 def append_data(sheet_name, row_data):
     client = get_gspread_client()
     try:
-        sheet = client.open("My_Expense_Tracker")
+        # 原本：sheet = client.open("My_Expense_Tracker")
+
+        # 改成：
+        sheet_name = st.secrets.get("spreadsheet_name", "My_Expense_Tracker")
+        sheet = client.open(sheet_name)
         worksheet = sheet.worksheet(sheet_name)
         worksheet.append_row(row_data)
         return True
@@ -137,7 +145,11 @@ def append_data(sheet_name, row_data):
 def save_settings_data(new_settings_df):
     client = get_gspread_client()
     try:
-        sheet = client.open("My_Expense_Tracker")
+        # 原本：sheet = client.open("My_Expense_Tracker")
+
+        # 改成：
+        sheet_name = st.secrets.get("spreadsheet_name", "My_Expense_Tracker")
+        sheet = client.open(sheet_name)
         worksheet = sheet.worksheet("Settings")
         worksheet.clear()
         new_settings_df = new_settings_df.fillna("")
@@ -151,7 +163,11 @@ def save_settings_data(new_settings_df):
 def update_recurring_last_run(row_index, month_str):
     client = get_gspread_client()
     try:
-        sheet = client.open("My_Expense_Tracker")
+        # 原本：sheet = client.open("My_Expense_Tracker")
+
+        # 改成：
+        sheet_name = st.secrets.get("spreadsheet_name", "My_Expense_Tracker")
+        sheet = client.open(sheet_name)
         worksheet = sheet.worksheet("Recurring")
         worksheet.update_cell(row_index + 2, 9, month_str)
         return True
@@ -161,7 +177,11 @@ def update_recurring_last_run(row_index, month_str):
 def delete_recurring_rule(row_index):
     client = get_gspread_client()
     try:
-        sheet = client.open("My_Expense_Tracker")
+        # 原本：sheet = client.open("My_Expense_Tracker")
+
+        # 改成：
+        sheet_name = st.secrets.get("spreadsheet_name", "My_Expense_Tracker")
+        sheet = client.open(sheet_name)
         worksheet = sheet.worksheet("Recurring")
         worksheet.delete_rows(row_index + 2)
         return True
