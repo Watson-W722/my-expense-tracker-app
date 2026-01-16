@@ -738,8 +738,6 @@ with tab3:
             st.info("目前沒有設定固定收支規則")
 
     # 2. 類別管理 (V15 批次修改模式 + Callback)
-    st.info("💡 修改下方設定後，請務必點擊最底部的「儲存所有設定」按鈕")
-    
     with st.expander("📂 類別與子類別管理"):
         with st.popover("➕ 新增大類", use_container_width=True):
             new_main = st.text_input("類別名稱", placeholder="例如: 醫療", label_visibility="collapsed")
@@ -816,4 +814,4 @@ with tab3:
             st.session_state.temp_default_curr = new_def_curr
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.caption("✅ 提示：您的任何修改（新增/刪除/變更）都會 **自動即時儲存** 至 Google Sheet。")
+    st.info("💡 提示：您的任何修改（新增/刪除/變更）都會 **自動即時儲存** 至 Google Sheet。")
