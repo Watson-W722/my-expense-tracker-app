@@ -64,7 +64,7 @@ st.markdown("""
         padding-top: 10px;
         margin-top: -20px;
     }
-     /* Tab 樣式微調 */
+    . /* Tab 樣式微調 */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] {
         height: 50px;
@@ -83,7 +83,8 @@ st.markdown("""
         background-color: #ffffff;
         color: #0d6efd !important;
         border-top: 3px solid #0d6efd;
-    }    
+    }
+   
     .login-container {
         max-width: 600px;
         margin: 50px auto;
@@ -126,6 +127,7 @@ def open_spreadsheet(client, source_str):
 def check_connection():
     url_sheet_name = st.query_params.get("sheet", None)
     
+    # 這裡使用 current_sheet_name 作為主要判斷依據
     if "current_sheet_name" not in st.session_state:
         st.session_state.current_sheet_name = url_sheet_name
 
@@ -148,7 +150,9 @@ def check_connection():
         if "gcp_service_account" in st.secrets:
             st.code(st.secrets["gcp_service_account"]["client_email"], language="text")
         if st.button("⬅️ 返回"):
-            st.session_state.current_sheet_name = None
+            # 清除 Session 確保跳回登入頁
+            if "current_sheet_name" in st.session_state:
+                del st.session_state["current_sheet_name"]
             st.query_params.clear()
             st.rerun()
         st.stop()
@@ -315,8 +319,9 @@ def save_all_to_sheet():
     df_cat_new = pd.DataFrame(rows)
     
     # 2. 付款與幣別 (使用 get 以防萬一)
-    list_pay = st.session_state.get('temp_pay_list', [])
-    list_curr = st.session_state.get('temp_curr_list', [])
+    # 若 session_state 中沒有這些 key，回退使用全域變數 payment_list / currency_list_custom
+    list_pay = st.session_state.get('temp_pay_list', payment_list)
+    list_curr = st.session_state.get('temp_curr_list', currency_list_custom)
     
     # 3. 合併 DataFrame
     max_len = max(len(df_cat_new), len(list_pay), len(list_curr)) if len(df_cat_new) > 0 or len(list_pay) > 0 or len(list_curr) > 0 else 1
@@ -335,7 +340,7 @@ def save_all_to_sheet():
     # 4. 預設幣別
     final_df["Default_Currency"] = ""
     if len(final_df) > 0:
-        final_df.at[0, "Default_Currency"] = st.session_state.get('temp_default_curr', "TWD")
+        final_df.at[0, "Default_Currency"] = st.session_state.get('temp_default_curr', default_currency_setting)
     
     # 5. 寫入
     if save_settings_data(final_df, CURRENT_SHEET_SOURCE):
@@ -372,14 +377,19 @@ with st.sidebar:
     st.header("🌍 地區設定")
     st.success(f"📘 帳本：{DISPLAY_TITLE}")
     
+    # [修正] 登出按鈕：徹底清除相關 Session State
     if st.button("🚪 切換帳本 (登出)"):
-        st.session_state.current_sheet_source = None
+        keys_to_clear = ["current_sheet_name", "current_sheet_source", "current_sheet_title"]
+        for key in keys_to_clear:
+            if key in st.session_state:
+                del st.session_state[key]
+        
         st.query_params.clear()
         st.cache_data.clear()
         st.rerun()
         
     st.divider()
-    tz_options = {"台灣/新日坡 (UTC+8)": 8, "日本/韓國 (UTC+9)": 9, "泰國 (UTC+7)": 7, "美東 (UTC-4)": -4, "歐洲 (UTC+1)": 1}
+    tz_options = {"台灣/新加坡 (UTC+8)": 8, "日本/韓國 (UTC+9)": 9, "泰國 (UTC+7)": 7, "美東 (UTC-4)": -4, "歐洲 (UTC+1)": 1}
     selected_tz_label = st.selectbox("當前位置時區", list(tz_options.keys()), index=0)
     user_offset = tz_options[selected_tz_label]
     st.info(f"日期：{get_user_date(user_offset)}")
@@ -744,18 +754,16 @@ with tab3:
                 with st.expander(f"📁 {main}", expanded=False):
                     # 顯示子類別 (Multiselect 移除)
                     current_subs = st.session_state.temp_cat_map[main]
-                    updated_subs = st.multiselect("子類", current_subs, default=current_subs, key=f"ms_{main}")
-                    
-                    # 如果使用者移除了某個子類，更新 temp
-                    if len(updated_subs) < len(current_subs):
-                        st.session_state.temp_cat_map[main] = updated_subs
+                    updated_subs = st.multiselect("子類", current_subs, default=current_subs, key=f"ms_{main}", on_change=lambda m=main, k=f"ms_{main}": st.session_state.temp_cat_map.update({m: st.session_state[k]}))
                     
                     cs1, cs2 = st.columns([3, 1])
-                    sub_key = f"new_sub_val_{main}"
+                    sub_key = f"new_sub_val_{main}" # [修正] 使用類別名稱當 Key
+                    if sub_key not in st.session_state: st.session_state[sub_key] = ""
+                    
                     with cs1: 
                         st.text_input("add", key=sub_key, label_visibility="collapsed", placeholder="新增子類別...")
                     with cs2: 
-                        # 使用 Callback 清空輸入框並加入暫存
+                        # [關鍵修改] 使用 on_click Callback
                         st.button("加入", key=f"bns_{main}", on_click=add_sub_callback, args=(main, sub_key))
                             
                     st.markdown("<br>", unsafe_allow_html=True)
@@ -767,27 +775,26 @@ with tab3:
     with st.expander("💳 付款與幣別"):
         st.subheader("付款方式")
         pays = st.session_state.temp_pay_list
-        u_pays = st.multiselect("付款", pays, default=pays, key="mp_pay")
-        # 更新暫存
-        st.session_state.temp_pay_list = u_pays
+        # Multiselect 綁定 callback
+        u_pays = st.multiselect("付款", pays, default=pays, key="mp_pay", on_change=lambda: st.session_state.update(temp_pay_list=st.session_state.mp_pay))
         
         c_p1, c_p2 = st.columns([3,1])
         with c_p1: 
             st.text_input("np", key="new_pay_val", label_visibility="collapsed", placeholder="新增付款方式")
         with c_p2: 
+            # [關鍵修改] 使用 on_click Callback
             st.button("加入", key="bp", on_click=add_pay_callback, args=("new_pay_val",))
         
         st.divider()
         st.subheader("常用幣別")
         curs = st.session_state.temp_curr_list
-        u_curs = st.multiselect("幣別", curs, default=curs, key="mp_cur")
-        # 更新暫存
-        st.session_state.temp_curr_list = u_curs
+        u_curs = st.multiselect("幣別", curs, default=curs, key="mp_cur", on_change=lambda: st.session_state.update(temp_curr_list=st.session_state.mp_cur))
         
         c_c1, c_c2 = st.columns([3,1])
         with c_c1: 
             st.text_input("nc", key="new_curr_val", label_visibility="collapsed", placeholder="新增幣別")
         with c_c2:
+            # [關鍵修改] 使用 on_click Callback
             st.button("加入", key="bc", on_click=add_curr_callback, args=("new_curr_val",))
                     
         st.markdown("<br>", unsafe_allow_html=True)
