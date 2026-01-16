@@ -10,6 +10,13 @@ import os
 st.set_page_config(page_title="我的記帳本", layout="wide", page_icon="💰")
 
 # ==========================================
+# [設定區] 請在此貼上您的範本連結
+# ==========================================
+# 請將下方的網址換成您第一階段製作的 "/copy" 連結
+# 如果留空，按鈕就不會出現
+TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1j7WM4A6bgRr1S-0BvHYPw9Xp5oXs0Ikp969-Ys65JL0/copy" 
+
+# ==========================================
 # 0. UI 美化樣式
 # ==========================================
 st.markdown("""
@@ -47,10 +54,7 @@ st.markdown("""
     .metric-value { font-size: 1.6rem; font-weight: 700; color: #2c3e50; }
     .val-green { color: #2ecc71; }
     .val-red { color: #e74c3c; }
-    /* 按鈕樣式 */
-    div.stButton > button { border-radius: 8px; font-weight: 600; }
-    
-    /* Tab 樣式微調 */
+ /* Tab 樣式微調 */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] {
         height: 50px;
@@ -71,13 +75,18 @@ st.markdown("""
         border-top: 3px solid #0d6efd;
     }
     .login-container {
-        max-width: 500px;
+        max-width: 600px;
         margin: 50px auto;
-        padding: 30px;
+        padding: 40px;
         background: white;
         border-radius: 15px;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         text-align: center;
+    }
+    .step-text {
+        text-align: left;
+        margin-bottom: 10px;
+        font-size: 0.95rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -103,7 +112,7 @@ def get_gspread_client():
     return gspread.authorize(creds)
 
 # ==========================================
-# 動態連接驗證機制
+# 動態連接驗證機制 (含範本下載按鈕)
 # ==========================================
 def check_connection():
     url_sheet_name = st.query_params.get("sheet", None)
@@ -136,30 +145,44 @@ def check_connection():
         st.stop()
 
 def show_login_screen():
+    # 取得機器人 Email
+    bot_email = "尚未設定 Secrets"
+    if "gcp_service_account" in st.secrets:
+        bot_email = st.secrets["gcp_service_account"]["client_email"]
+
     st.markdown("""
     <div class="login-container">
-        <h2>👋 歡迎使用記帳本</h2>
-        <p style="color:#666;">請輸入您的 Google Sheet 名稱以開始記帳</p>
-    </div>
+        <h2 style="margin-bottom: 20px;">👋 歡迎使用記帳本</h2>
     """, unsafe_allow_html=True)
-    with st.container():
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            sheet_input = st.text_input("Google Sheet 檔案名稱", placeholder="例如：王小明的記帳本")
-            if st.button("🚀 連接帳本", type="primary", use_container_width=True):
-                if sheet_input:
-                    st.session_state.current_sheet_name = sheet_input
-                    st.rerun()
-                else:
-                    st.warning("請輸入名稱")
-            with st.expander("❓ 如何開始？"):
-                st.markdown("""
-                1. 建立一個 Google Sheet 副本。
-                2. 點擊右上角 **「共用」**。
-                3. 將此 Email 加入為 **「編輯者」**：
-                """)
-                if "gcp_service_account" in st.secrets:
-                    st.code(st.secrets["gcp_service_account"]["client_email"], language="text")
+
+    # 步驟引導
+    col_L, col_R = st.columns([1, 1])
+    
+    with col_L:
+        st.info("我是新使用者")
+        st.markdown("<div class='step-text'>1. 取得專屬 Google Sheet 範本</div>", unsafe_allow_html=True)
+        if "http" in TEMPLATE_URL:
+            st.link_button("📄 建立副本 (下載範本)", TEMPLATE_URL, type="primary", use_container_width=True)
+        else:
+            st.warning("⚠️ 開發者尚未設定範本連結")
+            
+        st.markdown("<div class='step-text'>2. 點擊右上角「共用」，將此 Email 加入為<b>編輯者</b>：</div>", unsafe_allow_html=True)
+        st.code(bot_email, language="text")
+
+    with col_R:
+        st.success("我已經準備好了")
+        st.markdown("<div class='step-text'>3. 輸入您的 Google Sheet 檔案名稱</div>", unsafe_allow_html=True)
+        sheet_input = st.text_input("檔案名稱", placeholder="例如：王小明的記帳本")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🚀 連接帳本", type="primary", use_container_width=True):
+            if sheet_input:
+                st.session_state.current_sheet_name = sheet_input
+                st.rerun()
+            else:
+                st.warning("請輸入名稱")
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 CURRENT_SHEET_NAME = check_connection()
 
@@ -345,12 +368,12 @@ with c_logo:
 with c_title:
     st.markdown("<h2 style='margin-bottom: 0; padding-top: 10px;'>我的記帳本</h2>", unsafe_allow_html=True)
 
-# --- 讀取設定 (邏輯修改區) ---
+# --- 讀取設定 ---
 settings_df = get_data("Settings", CURRENT_SHEET_NAME)
 cat_mapping = {}     
 payment_list = []
 currency_list_custom = []
-default_currency_setting = "TWD" # [預設值改為 TWD]
+default_currency_setting = "TWD" 
 
 if not settings_df.empty:
     if "Main_Category" in settings_df.columns and "Sub_Category" in settings_df.columns:
@@ -365,17 +388,14 @@ if not settings_df.empty:
     if "Payment_Method" in settings_df.columns:
         payment_list = settings_df[settings_df["Payment_Method"] != ""]["Payment_Method"].unique().tolist()
     
-    # [修正] 讀取幣別清單，若空則預設只有 TWD
     if "Currency" in settings_df.columns:
         currency_list_custom = settings_df[settings_df["Currency"] != ""]["Currency"].unique().tolist()
     
-    # [新增] 讀取預設幣別
     if "Default_Currency" in settings_df.columns:
         saved_defaults = settings_df[settings_df["Default_Currency"] != ""]["Default_Currency"].unique().tolist()
         if saved_defaults:
             default_currency_setting = saved_defaults[0]
 
-# [修正] 若清單為空，給 TWD；若不為空，保留原樣
 if not cat_mapping: 
     cat_mapping = {"收入": ["薪資"], "食": ["早餐"]}
 elif "收入" not in cat_mapping:
@@ -383,11 +403,9 @@ elif "收入" not in cat_mapping:
 
 if not payment_list: payment_list = ["現金"]
 
-# [關鍵修改] 幣別預設值邏輯
 if not currency_list_custom: 
     currency_list_custom = ["TWD"]
 
-# 確保 Default Currency 在清單中，若不在，則預設為清單第一個
 if default_currency_setting not in currency_list_custom:
     default_currency_setting = currency_list_custom[0]
 
@@ -404,7 +422,6 @@ with tab1:
         st.session_state.form_note = ""
         st.session_state.should_clear_input = False
 
-    # [修改] 使用設定檔中的預設幣別初始化
     if 'form_currency' not in st.session_state: st.session_state.form_currency = default_currency_setting
     if 'form_amount_org' not in st.session_state: st.session_state.form_amount_org = 0.0
     if 'form_amount_sgd' not in st.session_state: st.session_state.form_amount_sgd = 0.0
