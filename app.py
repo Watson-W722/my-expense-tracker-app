@@ -15,7 +15,7 @@ st.set_page_config(page_title="我的記帳本", layout="wide", page_icon="💰"
 TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1XyZ_example_ID_copy/copy" 
 
 # ==========================================
-# 0. UI 美化樣式 (含 Radio 導航美化)
+# 0. UI 美化樣式
 # ==========================================
 st.markdown("""
 <style>
@@ -30,33 +30,6 @@ st.markdown("""
         padding-bottom: 5rem !important;
     }
     #MainMenu {visibility: hidden;}
-    
-    /* 導航列美化 (把 Radio 變成像 Tabs) */
-    div.row-widget.stRadio > div {
-        flex-direction: row;
-        align-items: stretch;
-        background-color: white;
-        border-radius: 10px;
-        padding: 5px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    }
-    div.row-widget.stRadio > div[role="radiogroup"] > label {
-        background-color: transparent;
-        border: none;
-        padding: 10px 20px;
-        margin: 0;
-        border-radius: 8px;
-        transition: all 0.3s;
-        text-align: center;
-        flex: 1;
-    }
-    div.row-widget.stRadio > div[role="radiogroup"] > label:hover {
-        background-color: #f1f3f5;
-    }
-    /* 選中狀態 */
-    div.row-widget.stRadio > div[role="radiogroup"] > label[data-testid="stRadioOption"] > div:first-child {
-        display: none; /* 隱藏原本的圓點 */
-    }
     
     .metric-container {
         display: flex;
@@ -80,7 +53,28 @@ st.markdown("""
     .metric-value { font-size: 1.6rem; font-weight: 700; color: #2c3e50; }
     .val-green { color: #2ecc71; }
     .val-red { color: #e74c3c; }
+    
     div.stButton > button { border-radius: 8px; font-weight: 600; }
+    
+    .stTabs {
+        position: sticky;
+        top: 0;
+        background-color: #f8f9fa;
+        z-index: 999;
+        padding-top: 10px;
+        margin-top: -20px;
+    }
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .stTabs [data-baseweb="tab"] {
+        background-color: white;
+        border-radius: 8px 8px 0 0;
+        border: 1px solid #dee2e6;
+        border-bottom: none;
+    }
+    .stTabs [aria-selected="true"] {
+        border-top: 3px solid #0d6efd;
+        color: #0d6efd !important;
+    }
     
     .login-container {
         max-width: 600px;
@@ -296,6 +290,72 @@ def calculate_exchange(amount, input_currency, target_currency, rates):
         return amount, 0
 
 # ==========================================
+# [關鍵修復] 定義 Callback 與 存檔函式
+# ==========================================
+def save_all_to_sheet():
+    """收集所有暫存 Session State 並寫入 Google Sheet"""
+    rows = []
+    # 1. 類別
+    if 'temp_cat_map' in st.session_state:
+        for m, subs in st.session_state.temp_cat_map.items():
+            if not subs: 
+                rows.append({"Main_Category": m, "Sub_Category": ""})
+            else:
+                for s in subs:
+                    rows.append({"Main_Category": m, "Sub_Category": s})
+    
+    df_cat_new = pd.DataFrame(rows)
+    
+    # 2. 付款與幣別 (使用 get 以防萬一)
+    list_pay = st.session_state.get('temp_pay_list', [])
+    list_curr = st.session_state.get('temp_curr_list', [])
+    
+    # 3. 合併 DataFrame
+    max_len = max(len(df_cat_new), len(list_pay), len(list_curr)) if len(df_cat_new) > 0 or len(list_pay) > 0 or len(list_curr) > 0 else 1
+    final_df = pd.DataFrame()
+    
+    if not df_cat_new.empty:
+        final_df["Main_Category"] = df_cat_new["Main_Category"].reindex(range(max_len)).fillna("")
+        final_df["Sub_Category"] = df_cat_new["Sub_Category"].reindex(range(max_len)).fillna("")
+    else:
+        final_df["Main_Category"] = [""] * max_len
+        final_df["Sub_Category"] = [""] * max_len
+        
+    final_df["Payment_Method"] = pd.Series(list_pay).reindex(range(max_len)).fillna("")
+    final_df["Currency"] = pd.Series(list_curr).reindex(range(max_len)).fillna("")
+    
+    # 4. 預設幣別
+    final_df["Default_Currency"] = ""
+    if len(final_df) > 0:
+        final_df.at[0, "Default_Currency"] = st.session_state.get('temp_default_curr', "TWD")
+    
+    # 5. 寫入
+    if save_settings_data(final_df, CURRENT_SHEET_SOURCE):
+        st.toast("✅ 設定已儲存！", icon="💾")
+        st.cache_data.clear()
+
+def add_sub_callback(main_cat, key):
+    new_val = st.session_state[key]
+    if new_val:
+        if new_val not in st.session_state.temp_cat_map[main_cat]:
+            st.session_state.temp_cat_map[main_cat].append(new_val)
+        st.session_state[key] = "" # 這裡執行清空輸入框
+
+def add_pay_callback(key):
+    new_val = st.session_state[key]
+    if new_val:
+        if new_val not in st.session_state.temp_pay_list:
+            st.session_state.temp_pay_list.append(new_val)
+        st.session_state[key] = ""
+
+def add_curr_callback(key):
+    new_val = st.session_state[key]
+    if new_val:
+        if new_val not in st.session_state.temp_curr_list:
+            st.session_state.temp_curr_list.append(new_val)
+        st.session_state[key] = ""
+
+# ==========================================
 # 3. 主程式 UI 邏輯
 # ==========================================
 
@@ -414,91 +474,11 @@ if default_currency_setting not in currency_list_custom:
 
 main_cat_list = list(cat_mapping.keys())
 
-# --- Callback 函式 (關鍵：處理資料並清空輸入) ---
-def save_all_to_sheet():
-    rows = []
-    if 'temp_cat_map' in st.session_state:
-        for m, subs in st.session_state.temp_cat_map.items():
-            if not subs: 
-                rows.append({"Main_Category": m, "Sub_Category": ""})
-            else:
-                for s in subs:
-                    rows.append({"Main_Category": m, "Sub_Category": s})
-    
-    df_cat_new = pd.DataFrame(rows)
-    list_pay = st.session_state.get('temp_pay_list', payment_list)
-    list_curr = st.session_state.get('temp_curr_list', currency_list_custom)
-    
-    max_len = max(len(df_cat_new), len(list_pay), len(list_curr))
-    final_df = pd.DataFrame()
-    
-    if not df_cat_new.empty:
-        final_df["Main_Category"] = df_cat_new["Main_Category"].reindex(range(max_len)).fillna("")
-        final_df["Sub_Category"] = df_cat_new["Sub_Category"].reindex(range(max_len)).fillna("")
-    else:
-        final_df["Main_Category"] = [""] * max_len
-        final_df["Sub_Category"] = [""] * max_len
-        
-    final_df["Payment_Method"] = pd.Series(list_pay).reindex(range(max_len)).fillna("")
-    final_df["Currency"] = pd.Series(list_curr).reindex(range(max_len)).fillna("")
-    
-    final_df["Default_Currency"] = ""
-    if len(final_df) > 0:
-        final_df.at[0, "Default_Currency"] = st.session_state.get('temp_default_curr', default_currency_setting)
-    
-    if save_settings_data(final_df, CURRENT_SHEET_SOURCE):
-        st.toast("✅ 設定已儲存！", icon="💾")
-        st.cache_data.clear()
+# --- 頁籤 ---
+tab1, tab2, tab3 = st.tabs(["📝 每日記帳", "📊 收支分析", "⚙️ 系統設定"])
 
-def add_sub_callback(main_cat, key):
-    new_val = st.session_state[key]
-    if new_val:
-        if new_val not in st.session_state.temp_cat_map[main_cat]:
-            st.session_state.temp_cat_map[main_cat].append(new_val)
-            save_all_to_sheet()
-        st.session_state[key] = ""
-
-def delete_sub_callback(main_cat, sub_val):
-    if sub_val in st.session_state.temp_cat_map[main_cat]:
-        st.session_state.temp_cat_map[main_cat].remove(sub_val)
-        save_all_to_sheet()
-
-def add_pay_callback(key):
-    new_val = st.session_state[key]
-    if new_val:
-        if new_val not in st.session_state.temp_pay_list:
-            st.session_state.temp_pay_list.append(new_val)
-            save_all_to_sheet()
-        st.session_state[key] = ""
-
-def delete_pay_callback(val_to_del):
-    if val_to_del in st.session_state.temp_pay_list:
-        st.session_state.temp_pay_list.remove(val_to_del)
-        save_all_to_sheet()
-
-def add_curr_callback(key):
-    new_val = st.session_state[key]
-    if new_val:
-        if new_val not in st.session_state.temp_curr_list:
-            st.session_state.temp_curr_list.append(new_val)
-            save_all_to_sheet()
-        st.session_state[key] = ""
-
-def delete_curr_callback(val_to_del):
-    if val_to_del in st.session_state.temp_curr_list:
-        st.session_state.temp_curr_list.remove(val_to_del)
-        save_all_to_sheet()
-
-# --- 導航 ---
-# [修正] 使用 Radio Button 取代 Tabs，避免狀態重置跳頁
-nav_options = ["📝 每日記帳", "📊 收支分析", "⚙️ 系統設定"]
-selected_page = st.radio("", nav_options, horizontal=True, label_visibility="collapsed", key="main_nav")
-
-st.markdown("---")
-
-# ================= 頁面邏輯 =================
-
-if selected_page == "📝 每日記帳":
+# ================= Tab 1: 每日記帳 =================
+with tab1:
     if st.session_state.get('should_clear_input'):
         st.session_state.form_amount_org = 0.0
         st.session_state.form_amount_sgd = 0.0
@@ -602,7 +582,8 @@ if selected_page == "📝 每日記帳":
                     else:
                         st.error("❌ 寫入失敗")
 
-elif selected_page == "📊 收支分析":
+# ================= Tab 2: 收支分析 =================
+with tab2:
     st.markdown("##### 📊 收支狀況")
     df_tx = get_data("Transactions", CURRENT_SHEET_SOURCE)
 
@@ -676,16 +657,17 @@ elif selected_page == "📊 收支分析":
             else:
                 st.info("本月支出相抵後無正向金額，無法顯示圓餅圖。")
 
-elif selected_page == "⚙️ 系統設定":
+# ================= Tab 3: 設定管理 =================
+with tab3:
     st.markdown("##### ⚙️ 系統資料庫")
     
-    # 初始化暫存變數
+    # 初始化暫存變數 (如果還沒有)
     if 'temp_cat_map' not in st.session_state: st.session_state.temp_cat_map = cat_mapping
     if 'temp_pay_list' not in st.session_state: st.session_state.temp_pay_list = payment_list
     if 'temp_curr_list' not in st.session_state: st.session_state.temp_curr_list = currency_list_custom
     if 'temp_default_curr' not in st.session_state: st.session_state.temp_default_curr = default_currency_setting
 
-    # 1. 固定收支
+    # 1. 固定收支 (保持即時寫入)
     with st.expander("🔄 每月固定收支 (薪資、房租...)", expanded=True):
         with st.popover("➕ 新增固定規則", use_container_width=True):
             st.markdown("###### 設定每月自動執行的項目")
@@ -737,55 +719,52 @@ elif selected_page == "⚙️ 系統設定":
         else:
             st.info("目前沒有設定固定收支規則")
 
-    # 2. 類別管理
+    # 2. 類別管理 (V15 批次修改模式 + Callback)
+    st.info("💡 修改下方設定後，請務必點擊最底部的「儲存所有設定」按鈕")
+    
     with st.expander("📂 類別與子類別管理"):
         with st.popover("➕ 新增大類", use_container_width=True):
             new_main = st.text_input("類別名稱", placeholder="例如: 醫療", label_visibility="collapsed")
             if st.button("確認新增", type="primary", use_container_width=True):
                 if new_main and new_main not in st.session_state.temp_cat_map:
                     st.session_state.temp_cat_map[new_main] = []
-                    save_all_to_sheet()
-                    st.rerun()
+                    # 這裡只更新 session state，不寫入 DB，不 rerun
+                    st.toast(f"已暫存類別：{new_main}")
                     
         for idx, main in enumerate(st.session_state.temp_cat_map.keys()):
             with st.container():
                 with st.expander(f"📁 {main}", expanded=False):
-                    new_main_name = st.text_input("名稱", value=main, key=f"ren_{idx}", label_visibility="collapsed")
-                    if new_main_name != main:
-                        st.session_state.temp_cat_map[new_main_name] = st.session_state.temp_cat_map.pop(main)
-                        save_all_to_sheet()
-                        st.rerun()
+                    # 顯示子類別 (Multiselect 移除)
+                    current_subs = st.session_state.temp_cat_map[main]
+                    updated_subs = st.multiselect("子類", current_subs, default=current_subs, key=f"ms_{main}")
                     
-                    current_subs = st.session_state.temp_cat_map[new_main_name]
-                    # 使用 multiselect 來刪除，並綁定 callback
-                    updated_subs = st.multiselect("子類", current_subs, default=current_subs, key=f"ms_{main}", label_visibility="collapsed", on_change=lambda m=main, k=f"ms_{main}": [st.session_state.temp_cat_map.update({m: st.session_state[k]}), save_all_to_sheet()])
+                    # 如果使用者移除了某個子類，更新 temp
+                    if len(updated_subs) < len(current_subs):
+                        st.session_state.temp_cat_map[main] = updated_subs
                     
                     cs1, cs2 = st.columns([3, 1])
-                    sub_key = f"new_sub_val_{main}" # [修正] 使用類別名稱當 Key
-                    if sub_key not in st.session_state: st.session_state[sub_key] = ""
-                    
+                    sub_key = f"new_sub_val_{main}"
                     with cs1: 
                         st.text_input("add", key=sub_key, label_visibility="collapsed", placeholder="新增子類別...")
                     with cs2: 
-                        # [關鍵修改] 使用 on_click Callback
+                        # 使用 Callback 清空輸入框並加入暫存
                         st.button("加入", key=f"bns_{main}", on_click=add_sub_callback, args=(main, sub_key))
                             
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button(f"🗑️ 刪除 {new_main_name}", key=f"dm_{main}", type="secondary", use_container_width=True):
-                        del st.session_state.temp_cat_map[new_main_name]
-                        save_all_to_sheet()
-                        st.rerun()
+                    if st.button(f"🗑️ 刪除 {main}", key=f"dm_{main}", type="secondary", use_container_width=True):
+                        del st.session_state.temp_cat_map[main]
+                        st.rerun() # 刪除大類比較重大，直接 rerun 刷新畫面比較好
 
-    # 3. 其他設定
+    # 3. 其他設定 (V15 批次修改模式 + Callback)
     with st.expander("💳 付款與幣別"):
         st.subheader("付款方式")
         pays = st.session_state.temp_pay_list
-        # Multiselect 綁定 callback
-        u_pays = st.multiselect("付款", pays, default=pays, key="mp_pay", label_visibility="collapsed", on_change=lambda: [st.session_state.update(temp_pay_list=st.session_state.mp_pay), save_all_to_sheet()])
+        u_pays = st.multiselect("付款", pays, default=pays, key="mp_pay")
+        # 更新暫存
+        st.session_state.temp_pay_list = u_pays
         
         c_p1, c_p2 = st.columns([3,1])
         with c_p1: 
-            if "new_pay_val" not in st.session_state: st.session_state.new_pay_val = ""
             st.text_input("np", key="new_pay_val", label_visibility="collapsed", placeholder="新增付款方式")
         with c_p2: 
             st.button("加入", key="bp", on_click=add_pay_callback, args=("new_pay_val",))
@@ -793,11 +772,12 @@ elif selected_page == "⚙️ 系統設定":
         st.divider()
         st.subheader("常用幣別")
         curs = st.session_state.temp_curr_list
-        u_curs = st.multiselect("幣別", curs, default=curs, key="mp_cur", label_visibility="collapsed", on_change=lambda: [st.session_state.update(temp_curr_list=st.session_state.mp_cur), save_all_to_sheet()])
+        u_curs = st.multiselect("幣別", curs, default=curs, key="mp_cur")
+        # 更新暫存
+        st.session_state.temp_curr_list = u_curs
         
         c_c1, c_c2 = st.columns([3,1])
         with c_c1: 
-            if "new_curr_val" not in st.session_state: st.session_state.new_curr_val = ""
             st.text_input("nc", key="new_curr_val", label_visibility="collapsed", placeholder="新增幣別")
         with c_c2:
             st.button("加入", key="bc", on_click=add_curr_callback, args=("new_curr_val",))
@@ -819,8 +799,8 @@ elif selected_page == "⚙️ 系統設定":
         )
         if new_def_curr != st.session_state.temp_default_curr:
             st.session_state.temp_default_curr = new_def_curr
-            save_all_to_sheet() # 設定變更立即儲存
-            st.toast("預設幣別已更新")
 
-    # 移除下方的「儲存所有設定」按鈕，因為現在操作都是即時儲存的
-    st.caption("💡 提示：您的修改會自動即時儲存")
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("💾 儲存所有設定", type="primary", use_container_width=True):
+        save_all_to_sheet()
+        st.rerun()
