@@ -15,20 +15,16 @@ st.set_page_config(page_title="我的記帳本", layout="wide", page_icon="💰"
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
-    
     html, body, [class*="css"] {
         font-family: 'Noto Sans TC', sans-serif;
         background-color: #f8f9fa;
         color: #2c3e50;
     }
-    
     .block-container {
         padding-top: 2rem !important;
         padding-bottom: 5rem !important;
     }
-
     #MainMenu {visibility: hidden;}
-    
     .metric-container {
         display: flex;
         flex-wrap: wrap;
@@ -51,34 +47,23 @@ st.markdown("""
     .metric-value { font-size: 1.6rem; font-weight: 700; color: #2c3e50; }
     .val-green { color: #2ecc71; }
     .val-red { color: #e74c3c; }
-
     div.stButton > button { border-radius: 8px; font-weight: 600; }
-    
- /* Tab 樣式微調 */
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
         background-color: white;
         border-radius: 8px 8px 0 0;
-        gap: 1px;
-        padding: 10px 20px;
-        font-size: 1.1rem;
-        font-weight: 600;
-        color: #6c757d;
         border: 1px solid #dee2e6;
         border-bottom: none;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #ffffff;
-        color: #0d6efd !important;
         border-top: 3px solid #0d6efd;
+        color: #0d6efd !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. 核心連線模組
+# 1. 核心連線模組 (支援動態檔名)
 # ==========================================
 @st.cache_resource
 def get_gspread_client():
@@ -98,26 +83,27 @@ def get_gspread_client():
             return None
     return gspread.authorize(creds)
 
+# [關鍵] 取得設定檔中的試算表名稱，若無則用預設值
+def get_sheet_name():
+    return st.secrets.get("spreadsheet_name", "My_Expense_Tracker")
+
 @st.cache_data
-def get_data(sheet_name):
+def get_data(worksheet_name):
     client = get_gspread_client()
     if not client: return pd.DataFrame()
     try:
-        # 原本：sheet = client.open("My_Expense_Tracker")
-
-        # 改成：
-        sheet_name = st.secrets.get("spreadsheet_name", "My_Expense_Tracker")
-        sheet = client.open(sheet_name)
-        worksheet = sheet.worksheet(sheet_name)
+        # [關鍵修正] 使用動態名稱
+        sheet = client.open(get_sheet_name())
+        worksheet = sheet.worksheet(worksheet_name)
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
         
-        if sheet_name == "Settings":
+        if worksheet_name == "Settings":
             required_cols = ["Main_Category", "Sub_Category", "Payment_Method", "Currency"]
             for col in required_cols:
                 if col not in df.columns: df[col] = ""
         
-        if sheet_name == "Recurring":
+        if worksheet_name == "Recurring":
             required_cols = ["Day", "Type", "Main_Category", "Sub_Category", "Payment_Method", "Currency", "Amount_Original", "Note", "Last_Run_Month"]
             for col in required_cols:
                 if col not in df.columns: df[col] = ""
@@ -126,30 +112,23 @@ def get_data(sheet_name):
     except Exception:
         return pd.DataFrame()
 
-def append_data(sheet_name, row_data):
+def append_data(worksheet_name, row_data):
     client = get_gspread_client()
     try:
-        # 原本：sheet = client.open("My_Expense_Tracker")
-
-        # 改成：
-        sheet_name = st.secrets.get("spreadsheet_name", "My_Expense_Tracker")
-        sheet = client.open(sheet_name)
-        worksheet = sheet.worksheet(sheet_name)
+        # [關鍵修正] 使用動態名稱
+        sheet = client.open(get_sheet_name())
+        worksheet = sheet.worksheet(worksheet_name)
         worksheet.append_row(row_data)
         return True
     except Exception as e:
         st.error(f"寫入錯誤: {e}")
         return False
 
-
 def save_settings_data(new_settings_df):
     client = get_gspread_client()
     try:
-        # 原本：sheet = client.open("My_Expense_Tracker")
-
-        # 改成：
-        sheet_name = st.secrets.get("spreadsheet_name", "My_Expense_Tracker")
-        sheet = client.open(sheet_name)
+        # [關鍵修正] 使用動態名稱
+        sheet = client.open(get_sheet_name())
         worksheet = sheet.worksheet("Settings")
         worksheet.clear()
         new_settings_df = new_settings_df.fillna("")
@@ -163,11 +142,8 @@ def save_settings_data(new_settings_df):
 def update_recurring_last_run(row_index, month_str):
     client = get_gspread_client()
     try:
-        # 原本：sheet = client.open("My_Expense_Tracker")
-
-        # 改成：
-        sheet_name = st.secrets.get("spreadsheet_name", "My_Expense_Tracker")
-        sheet = client.open(sheet_name)
+        # [關鍵修正] 使用動態名稱
+        sheet = client.open(get_sheet_name())
         worksheet = sheet.worksheet("Recurring")
         worksheet.update_cell(row_index + 2, 9, month_str)
         return True
@@ -177,21 +153,18 @@ def update_recurring_last_run(row_index, month_str):
 def delete_recurring_rule(row_index):
     client = get_gspread_client()
     try:
-        # 原本：sheet = client.open("My_Expense_Tracker")
-
-        # 改成：
-        sheet_name = st.secrets.get("spreadsheet_name", "My_Expense_Tracker")
-        sheet = client.open(sheet_name)
+        # [關鍵修正] 使用動態名稱
+        sheet = client.open(get_sheet_name())
         worksheet = sheet.worksheet("Recurring")
         worksheet.delete_rows(row_index + 2)
         return True
     except Exception:
         return False
-    
- # --- [新功能] 取得使用者指定時區的日期 ---
+
+# --- 取得使用者指定時區的日期 ---
 def get_user_date(offset_hours):
     tz = timezone(timedelta(hours=offset_hours))
-    return datetime.now(tz).date()   
+    return datetime.now(tz).date()
 
 # ==========================================
 # 2. 匯率處理模組
@@ -226,14 +199,17 @@ def calculate_sgd(amount, currency, rates):
         return amount, 0
 
 # ==========================================
-# 3. 自動化檢查與主程式 UI 邏輯
+# 3. 主程式 UI 邏輯
 # ==========================================
 
-# --- [新功能] 側邊欄時區設定 ---
+# --- 側邊欄時區設定 ---
 with st.sidebar:
     st.header("🌍 地區設定")
+    # [新增] 顯示目前連線的試算表名稱，方便除錯
+    st.caption(f"目前連線帳本：{get_sheet_name()}")
+    
     tz_options = {
-        "台灣/新加坡 (UTC+8)": 8,
+        "台灣/北京 (UTC+8)": 8,
         "日本/韓國 (UTC+9)": 9,
         "泰國/越南 (UTC+7)": 7,
         "美東 (UTC-4)": -4,
@@ -241,15 +217,13 @@ with st.sidebar:
         "歐洲中部 (UTC+1)": 1,
         "英國 (UTC+0)": 0
     }
-    # 預設選 台灣
-    selected_tz_label = st.selectbox("當前位置時區",  list(tz_options.keys()), index=0)
+    selected_tz_label = st.selectbox("當前位置時區", list(tz_options.keys()), index=0)
     user_offset = tz_options[selected_tz_label]
-
-    st.info(f"目前日期:{get_user_date(user_offset)}")
+    st.info(f"目前日期：{get_user_date(user_offset)}")
 
 rates = get_exchange_rates()
 
-# 檢查固定收支 (系統邏輯維持 UTC+8，避免因旅遊導致重複扣款)
+# 檢查固定收支
 def check_and_run_recurring():
     if 'recurring_checked' in st.session_state:
         return 
@@ -257,7 +231,6 @@ def check_and_run_recurring():
     rec_df = get_data("Recurring")
     if rec_df.empty: return
 
-    # 固定收支檢查一律使用台灣時間
     sys_tz = timezone(timedelta(hours=8))
     today = datetime.now(sys_tz)
     current_month_str = today.strftime("%Y-%m")
@@ -286,7 +259,7 @@ def check_and_run_recurring():
                     amt_org, 
                     amt_sgd, 
                     f"(自動) {row['Note']}", 
-                    str(datetime.now())
+                    str(datetime.now(sys_tz))
                 ]
                 
                 if append_data("Transactions", tx_row):
@@ -298,7 +271,7 @@ def check_and_run_recurring():
     if executed_count > 0:
         st.toast(f"🤖 自動補登了 {executed_count} 筆固定收支！", icon="✅")
         st.cache_data.clear()
-        time.sleep(2)
+        time.sleep(1)
         st.rerun()
     
     st.session_state['recurring_checked'] = True
@@ -351,13 +324,13 @@ with tab1:
     if st.session_state.get('should_clear_input'):
         st.session_state.form_amount_org = 0.0
         st.session_state.form_amount_sgd = 0.0
-        st.session_state.form_note = "" # [修正] 清空備註
+        st.session_state.form_note = ""
         st.session_state.should_clear_input = False
 
     if 'form_currency' not in st.session_state: st.session_state.form_currency = 'SGD'
     if 'form_amount_org' not in st.session_state: st.session_state.form_amount_org = 0.0
     if 'form_amount_sgd' not in st.session_state: st.session_state.form_amount_sgd = 0.0
-    if 'form_note' not in st.session_state: st.session_state.form_note = "" # [修正] 初始化備註
+    if 'form_note' not in st.session_state: st.session_state.form_note = ""
 
     def on_input_change():
         c = st.session_state.form_currency
@@ -365,10 +338,9 @@ with tab1:
         val, _ = calculate_sgd(a, c, rates)
         st.session_state.form_amount_sgd = val
 
-    # --- 計算與顯示數據 ---
-    # 這裡的月份計算，建議跟隨使用者選擇的時區，讓他看到「當地」的本月狀況
+    # --- 計算數據 ---
     user_today = get_user_date(user_offset)
-    current_month_str = datetime.now().strftime("%Y-%m")
+    current_month_str = user_today.strftime("%Y-%m")
     
     tx_df = get_data("Transactions")
 
@@ -408,7 +380,8 @@ with tab1:
     with st.container():
         st.markdown("##### ✍️ 新增交易")
         c1, c2 = st.columns([1, 1])
-        with c1: date_input = st.date_input("日期", user_today) # [修正] 使用者選定時區的日期
+        with c1: 
+            date_input = st.date_input("日期", user_today)
         with c2: payment = st.selectbox("付款方式", payment_list)
         c3, c4 = st.columns([1, 1])
         with c3: main_cat = st.selectbox("大類別", main_cat_list, key="input_main_cat")
@@ -424,19 +397,16 @@ with tab1:
                 if currency != "SGD" and amount_org != 0:
                      _, rate_used = calculate_sgd(100, currency, rates)
                      if rate_used > 0: st.caption(f"匯率: {rate_used:.4f}")
-        
-        # [修正] 備註綁定 key 
-        note = st.text_input("備註", max_chars=100, placeholder="輸入消費內容 (限20字)...", key="form_note")
+
+        note = st.text_input("備註", max_chars=20, placeholder="輸入消費內容 (限20字)...", key="form_note")
         st.markdown("<br>", unsafe_allow_html=True)
         
         if st.button("確認送出記帳", type="primary", use_container_width=True):
             if amount_sgd == 0:
                 st.error("金額不能為 0")
             else:
-                with st.spinner('📡 處理中...'):
+                with st.spinner('📡 資料寫入 Google Sheet 中...'):
                     tx_type = "收入" if main_cat == "收入" else "支出"
-
-                    # 記錄時使用「當地日期」但加上「系統執行時間」的時分秒
                     sys_now = datetime.now()
                     row = [str(date_input), tx_type, main_cat, sub_cat, payment, currency, amount_org, amount_sgd, note, str(sys_now)]
                     if append_data("Transactions", row):
@@ -568,9 +538,8 @@ with tab3:
         rec_df = get_data("Recurring")
         if not rec_df.empty:
             for idx, row in rec_df.iterrows():
-                # [關鍵修改] 顯示格式調整
+                # [關鍵修正] 顯示格式調整
                 header_txt = f"📅 每月 {row['Day']} 號 - {row['Main_Category']} > {row['Sub_Category']} > {row['Amount_Original']} {row['Currency']}"
-                
                 with st.expander(header_txt):
                     c_list1, c_list2 = st.columns([4, 1])
                     with c_list1:
