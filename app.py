@@ -12,7 +12,7 @@ st.set_page_config(page_title="我的記帳本", layout="wide", page_icon="💰"
 # ==========================================
 # [設定區] 範本連結
 # ==========================================
-TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1XyZ_example_ID_copy/copy" 
+TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1j7WM4A6bgRr1S-0BvHYPw9Xp5oXs0Ikp969-Ys65JL0/copy" 
 
 # ==========================================
 # 0. UI 美化樣式
@@ -64,18 +64,26 @@ st.markdown("""
         padding-top: 10px;
         margin-top: -20px;
     }
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+     /* Tab 樣式微調 */
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
         background-color: white;
         border-radius: 8px 8px 0 0;
+        gap: 1px;
+        padding: 10px 20px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #6c757d;
         border: 1px solid #dee2e6;
         border-bottom: none;
     }
     .stTabs [aria-selected="true"] {
-        border-top: 3px solid #0d6efd;
+        background-color: #ffffff;
         color: #0d6efd !important;
-    }
-    
+        border-top: 3px solid #0d6efd;
+    }    
     .login-container {
         max-width: 600px;
         margin: 50px auto;
@@ -371,7 +379,7 @@ with st.sidebar:
         st.rerun()
         
     st.divider()
-    tz_options = {"台灣/北京 (UTC+8)": 8, "日本/韓國 (UTC+9)": 9, "泰國 (UTC+7)": 7, "美東 (UTC-4)": -4, "歐洲 (UTC+1)": 1}
+    tz_options = {"台灣/新日坡 (UTC+8)": 8, "日本/韓國 (UTC+9)": 9, "泰國 (UTC+7)": 7, "美東 (UTC-4)": -4, "歐洲 (UTC+1)": 1}
     selected_tz_label = st.selectbox("當前位置時區", list(tz_options.keys()), index=0)
     user_offset = tz_options[selected_tz_label]
     st.info(f"日期：{get_user_date(user_offset)}")
