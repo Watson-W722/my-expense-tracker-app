@@ -10,11 +10,9 @@ import os
 st.set_page_config(page_title="我的記帳本", layout="wide", page_icon="💰")
 
 # ==========================================
-# [設定區] 請在此貼上您的範本連結
+# [設定區] 範本連結
 # ==========================================
-# 請將下方的網址換成您第一階段製作的 "/copy" 連結
-# 如果留空，按鈕就不會出現
-TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1j7WM4A6bgRr1S-0BvHYPw9Xp5oXs0Ikp969-Ys65JL0/copy" 
+TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1XyZ_example_ID_copy/copy" 
 
 # ==========================================
 # 0. UI 美化樣式
@@ -54,7 +52,7 @@ st.markdown("""
     .metric-value { font-size: 1.6rem; font-weight: 700; color: #2c3e50; }
     .val-green { color: #2ecc71; }
     .val-red { color: #e74c3c; }
- /* Tab 樣式微調 */
+     /* Tab 樣式微調 */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] {
         height: 50px;
@@ -83,11 +81,7 @@ st.markdown("""
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         text-align: center;
     }
-    .step-text {
-        text-align: left;
-        margin-bottom: 10px;
-        font-size: 0.95rem;
-    }
+    .step-text { text-align: left; margin-bottom: 10px; font-size: 0.95rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -111,41 +105,60 @@ def get_gspread_client():
             return None
     return gspread.authorize(creds)
 
+def open_spreadsheet(client, source_str):
+    if source_str.startswith("http"):
+        return client.open_by_url(source_str)
+    else:
+        return client.open(source_str)
+
 # ==========================================
-# 動態連接驗證機制 (含範本下載按鈕)
+# 動態連接驗證機制
 # ==========================================
 def check_connection():
+    # 1. 優先從 Session State 拿
+    if "current_sheet_source" in st.session_state and st.session_state.current_sheet_source:
+        source = st.session_state.current_sheet_source
+        title = st.session_state.get("current_sheet_title", "未命名帳本")
+        return source, title
+
+    # 2. 嘗試從 URL 獲取 (保持登入狀態)
     url_sheet_name = st.query_params.get("sheet", None)
     
-    if "current_sheet_name" not in st.session_state:
-        st.session_state.current_sheet_name = url_sheet_name
-
-    if not st.session_state.current_sheet_name:
+    if not url_sheet_name:
         show_login_screen()
         st.stop()
 
+    # 3. 驗證連線並取得標題
     client = get_gspread_client()
     if not client:
         st.error("❌ 系統錯誤：無法讀取機器人金鑰。")
         st.stop()
 
     try:
-        client.open(st.session_state.current_sheet_name)
-        st.query_params["sheet"] = st.session_state.current_sheet_name
-        return st.session_state.current_sheet_name
+        sheet = open_spreadsheet(client, url_sheet_name)
+        
+        # [關鍵修正] 儲存真正的標題
+        real_title = sheet.title
+        
+        # 存入 Session 與 URL
+        st.session_state.current_sheet_source = url_sheet_name
+        st.session_state.current_sheet_title = real_title
+        st.query_params["sheet"] = url_sheet_name
+        
+        return url_sheet_name, real_title
+        
     except Exception as e:
-        st.error(f"❌ 連線失敗：找不到名為「{st.session_state.current_sheet_name}」的試算表。")
-        st.warning("請確認 Google Sheet 名稱正確，且已分享給機器人 Email。")
+        st.error(f"❌ 連線失敗")
+        st.warning("請確認網址正確且已分享權限給機器人。")
         if "gcp_service_account" in st.secrets:
             st.code(st.secrets["gcp_service_account"]["client_email"], language="text")
-        if st.button("⬅️ 返回重新輸入"):
-            st.session_state.current_sheet_name = None
+        if st.button("⬅️ 返回"):
+            st.session_state.current_sheet_source = None
             st.query_params.clear()
             st.rerun()
         st.stop()
 
 def show_login_screen():
-    # 取得機器人 Email
     bot_email = "尚未設定 Secrets"
     if "gcp_service_account" in st.secrets:
         bot_email = st.secrets["gcp_service_account"]["client_email"]
@@ -155,45 +168,43 @@ def show_login_screen():
         <h2 style="margin-bottom: 20px;">👋 歡迎使用記帳本</h2>
     """, unsafe_allow_html=True)
 
-    # 步驟引導
     col_L, col_R = st.columns([1, 1])
-    
     with col_L:
         st.info("我是新使用者")
-        st.markdown("<div class='step-text'>1. 取得專屬 Google Sheet 範本</div>", unsafe_allow_html=True)
+        st.markdown("<div class='step-text'>1. 下載專屬範本</div>", unsafe_allow_html=True)
         if "http" in TEMPLATE_URL:
-            st.link_button("📄 建立副本 (下載範本)", TEMPLATE_URL, type="primary", use_container_width=True)
+            st.link_button("📄 建立副本", TEMPLATE_URL, type="primary", use_container_width=True)
         else:
-            st.warning("⚠️ 開發者尚未設定範本連結")
-            
-        st.markdown("<div class='step-text'>2. 點擊右上角「共用」，將此 Email 加入為<b>編輯者</b>：</div>", unsafe_allow_html=True)
+            st.warning("⚠️ 未設定範本連結")
+        st.markdown("<div class='step-text'>2. 共用給機器人：</div>", unsafe_allow_html=True)
         st.code(bot_email, language="text")
 
     with col_R:
         st.success("我已經準備好了")
-        st.markdown("<div class='step-text'> 輸入您的 Google Sheet 檔案名稱</div>", unsafe_allow_html=True)
-        sheet_input = st.text_input("檔案名稱", placeholder="例如：王小明的記帳本")
+        st.markdown("<div class='step-text'>3. 輸入 <b>Google Sheet 網址</b></div>", unsafe_allow_html=True)
+        sheet_input = st.text_input("連結或名稱", placeholder="https://docs.google.com/...")
         
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🚀 連接帳本", type="primary", use_container_width=True):
             if sheet_input:
-                st.session_state.current_sheet_name = sheet_input
+                # 這裡只做轉址，實際驗證交給 check_connection
+                st.query_params["sheet"] = sheet_input.strip()
                 st.rerun()
             else:
-                st.warning("請輸入名稱")
-
+                st.warning("請輸入內容")
     st.markdown("</div>", unsafe_allow_html=True)
 
-CURRENT_SHEET_NAME = check_connection()
+# 執行連線檢查，取得 (連線字串, 顯示名稱)
+CURRENT_SHEET_SOURCE, DISPLAY_TITLE = check_connection()
 
 # ==========================================
 # 資料讀寫函式
 # ==========================================
 @st.cache_data
-def get_data(worksheet_name, target_sheet_name):
+def get_data(worksheet_name, source_str):
     client = get_gspread_client()
     try:
-        sheet = client.open(target_sheet_name)
+        sheet = open_spreadsheet(client, source_str)
         worksheet = sheet.worksheet(worksheet_name)
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
@@ -212,10 +223,10 @@ def get_data(worksheet_name, target_sheet_name):
     except Exception:
         return pd.DataFrame()
 
-def append_data(worksheet_name, row_data, target_sheet_name):
+def append_data(worksheet_name, row_data, source_str):
     client = get_gspread_client()
     try:
-        sheet = client.open(target_sheet_name)
+        sheet = open_spreadsheet(client, source_str)
         worksheet = sheet.worksheet(worksheet_name)
         worksheet.append_row(row_data)
         return True
@@ -223,10 +234,10 @@ def append_data(worksheet_name, row_data, target_sheet_name):
         st.error(f"寫入錯誤: {e}")
         return False
 
-def save_settings_data(new_settings_df, target_sheet_name):
+def save_settings_data(new_settings_df, source_str):
     client = get_gspread_client()
     try:
-        sheet = client.open(target_sheet_name)
+        sheet = open_spreadsheet(client, source_str)
         worksheet = sheet.worksheet("Settings")
         worksheet.clear()
         new_settings_df = new_settings_df.fillna("")
@@ -237,20 +248,20 @@ def save_settings_data(new_settings_df, target_sheet_name):
         st.error(f"儲存設定失敗: {e}")
         return False
 
-def update_recurring_last_run(row_index, month_str, target_sheet_name):
+def update_recurring_last_run(row_index, month_str, source_str):
     client = get_gspread_client()
     try:
-        sheet = client.open(target_sheet_name)
+        sheet = open_spreadsheet(client, source_str)
         worksheet = sheet.worksheet("Recurring")
         worksheet.update_cell(row_index + 2, 9, month_str)
         return True
     except Exception as e:
         return False
 
-def delete_recurring_rule(row_index, target_sheet_name):
+def delete_recurring_rule(row_index, source_str):
     client = get_gspread_client()
     try:
-        sheet = client.open(target_sheet_name)
+        sheet = open_spreadsheet(client, source_str)
         worksheet = sheet.worksheet("Recurring")
         worksheet.delete_rows(row_index + 2)
         return True
@@ -262,7 +273,7 @@ def get_user_date(offset_hours):
     return datetime.now(tz).date()
 
 # ==========================================
-# 2. 匯率處理模組
+# 2. 匯率處理模組 (修復版)
 # ==========================================
 @st.cache_data(ttl=3600)
 def get_exchange_rates():
@@ -276,20 +287,34 @@ def get_exchange_rates():
         rates = df.dropna(subset=['Currency']).copy()
         rates["Spot_Sell"] = pd.to_numeric(rates["Spot_Sell"], errors='coerce')
         rate_dict = rates.set_index("Currency")["Spot_Sell"].to_dict()
+        # 補上台幣自己
         rate_dict["TWD"] = 1.0
         return rate_dict
     except:
-        return {}
+        return {"TWD": 1.0, "USD": 32.5} # Fallback data
 
-def calculate_sgd(amount, currency, rates):
-    if currency == "SGD": return amount, 1.0
+# [關鍵修正] 通用匯率換算函式
+def calculate_exchange(amount, input_currency, target_currency, rates):
+    # 如果幣別相同，直接返回
+    if input_currency == target_currency:
+        return amount, 1.0
+    
     try:
-        sgd_rate = rates.get("SGD")
-        target_rate = rates.get(currency)
-        if not sgd_rate or not target_rate: return amount, 0
-        conversion_factor = target_rate / sgd_rate
-        sgd_amount = amount * conversion_factor
-        return round(sgd_amount, 2), conversion_factor
+        # 1. 取得 輸入幣別 對 TWD 的匯率
+        rate_in = rates.get(input_currency)
+        # 2. 取得 目標幣別 對 TWD 的匯率
+        rate_target = rates.get(target_currency)
+        
+        # 防呆：如果找不到匯率 (例如 TWD 在某些表裡可能沒被抓到，但我們上面有補 1.0)
+        if not rate_in or not rate_target:
+            return amount, 0
+            
+        # 計算交叉匯率： (金額 * 輸入幣匯率) / 目標幣匯率
+        # 例：100 JPY (0.22) -> TWD 22 -> SGD (23.5) = 0.93
+        conversion_factor = rate_in / rate_target
+        exchanged_amount = amount * conversion_factor
+        
+        return round(exchanged_amount, 2), conversion_factor
     except:
         return amount, 0
 
@@ -300,10 +325,11 @@ def calculate_sgd(amount, currency, rates):
 # --- 側邊欄 ---
 with st.sidebar:
     st.header("🌍 地區設定")
-    st.success(f"📘 帳本：{CURRENT_SHEET_NAME}")
+    # [修正] 顯示真正的檔案標題
+    st.success(f"📘 帳本：{DISPLAY_TITLE}")
     
     if st.button("🚪 切換帳本 (登出)"):
-        st.session_state.current_sheet_name = None
+        st.session_state.current_sheet_source = None
         st.query_params.clear()
         st.cache_data.clear()
         st.rerun()
@@ -316,60 +342,8 @@ with st.sidebar:
 
 rates = get_exchange_rates()
 
-# 檢查固定收支
-def check_and_run_recurring():
-    if 'recurring_checked' in st.session_state:
-        return 
-
-    rec_df = get_data("Recurring", CURRENT_SHEET_NAME)
-    if rec_df.empty: return
-
-    sys_tz = timezone(timedelta(hours=8))
-    today = datetime.now(sys_tz)
-    current_month_str = today.strftime("%Y-%m")
-    current_day = today.day
-    
-    executed_count = 0
-    
-    for idx, row in rec_df.iterrows():
-        try:
-            last_run = str(row['Last_Run_Month']).strip()
-            scheduled_day = int(row['Day'])
-            
-            if last_run != current_month_str and current_day >= scheduled_day:
-                amt_org = float(row['Amount_Original'])
-                curr = row['Currency']
-                amt_sgd, _ = calculate_sgd(amt_org, curr, rates)
-                
-                tx_date = today.strftime("%Y-%m-%d")
-                tx_row = [tx_date, row['Type'], row['Main_Category'], row['Sub_Category'], row['Payment_Method'], curr, amt_org, amt_sgd, f"(自動) {row['Note']}", str(datetime.now(sys_tz))]
-                
-                if append_data("Transactions", tx_row, CURRENT_SHEET_NAME):
-                    update_recurring_last_run(idx, current_month_str, CURRENT_SHEET_NAME)
-                    executed_count += 1
-        except Exception:
-            continue
-
-    if executed_count > 0:
-        st.toast(f"🤖 自動補登了 {executed_count} 筆固定收支！", icon="✅")
-        st.cache_data.clear()
-        time.sleep(1)
-        st.rerun()
-    
-    st.session_state['recurring_checked'] = True
-
-check_and_run_recurring()
-
-# --- Header ---
-c_logo, c_title = st.columns([1, 15]) 
-with c_logo:
-    if os.path.exists("logo.png"): st.image("logo.png", width=60) 
-    else: st.write("💰")
-with c_title:
-    st.markdown("<h2 style='margin-bottom: 0; padding-top: 10px;'>我的記帳本</h2>", unsafe_allow_html=True)
-
 # --- 讀取設定 ---
-settings_df = get_data("Settings", CURRENT_SHEET_NAME)
+settings_df = get_data("Settings", CURRENT_SHEET_SOURCE)
 cat_mapping = {}     
 payment_list = []
 currency_list_custom = []
@@ -411,6 +385,59 @@ if default_currency_setting not in currency_list_custom:
 
 main_cat_list = list(cat_mapping.keys())
 
+# 檢查固定收支
+def check_and_run_recurring():
+    if 'recurring_checked' in st.session_state:
+        return 
+
+    rec_df = get_data("Recurring", CURRENT_SHEET_SOURCE)
+    if rec_df.empty: return
+
+    sys_tz = timezone(timedelta(hours=8))
+    today = datetime.now(sys_tz)
+    current_month_str = today.strftime("%Y-%m")
+    current_day = today.day
+    
+    executed_count = 0
+    
+    for idx, row in rec_df.iterrows():
+        try:
+            last_run = str(row['Last_Run_Month']).strip()
+            scheduled_day = int(row['Day'])
+            
+            if last_run != current_month_str and current_day >= scheduled_day:
+                amt_org = float(row['Amount_Original'])
+                curr = row['Currency']
+                # [修正] 使用新的通用換算
+                amt_target, _ = calculate_exchange(amt_org, curr, default_currency_setting, rates)
+                
+                tx_date = today.strftime("%Y-%m-%d")
+                tx_row = [tx_date, row['Type'], row['Main_Category'], row['Sub_Category'], row['Payment_Method'], curr, amt_org, amt_target, f"(自動) {row['Note']}", str(datetime.now(sys_tz))]
+                
+                if append_data("Transactions", tx_row, CURRENT_SHEET_SOURCE):
+                    update_recurring_last_run(idx, current_month_str, CURRENT_SHEET_SOURCE)
+                    executed_count += 1
+        except Exception:
+            continue
+
+    if executed_count > 0:
+        st.toast(f"🤖 自動補登了 {executed_count} 筆固定收支！", icon="✅")
+        st.cache_data.clear()
+        time.sleep(1)
+        st.rerun()
+    
+    st.session_state['recurring_checked'] = True
+
+check_and_run_recurring()
+
+# --- Header ---
+c_logo, c_title = st.columns([1, 15]) 
+with c_logo:
+    if os.path.exists("logo.png"): st.image("logo.png", width=60) 
+    else: st.write("💰")
+with c_title:
+    st.markdown("<h2 style='margin-bottom: 0; padding-top: 10px;'>我的記帳本</h2>", unsafe_allow_html=True)
+
 # --- 頁籤 ---
 tab1, tab2, tab3 = st.tabs(["📝 每日記帳", "📊 收支分析", "⚙️ 系統設定"])
 
@@ -427,16 +454,18 @@ with tab1:
     if 'form_amount_sgd' not in st.session_state: st.session_state.form_amount_sgd = 0.0
     if 'form_note' not in st.session_state: st.session_state.form_note = ""
 
+    # [修正] 使用通用匯率函式
     def on_input_change():
         c = st.session_state.form_currency
         a = st.session_state.form_amount_org
-        val, _ = calculate_sgd(a, c, rates)
+        # 計算：從 輸入幣別 -> 預設幣別
+        val, _ = calculate_exchange(a, c, default_currency_setting, rates)
         st.session_state.form_amount_sgd = val
 
     user_today = get_user_date(user_offset)
     current_month_str = user_today.strftime("%Y-%m")
     
-    tx_df = get_data("Transactions", CURRENT_SHEET_NAME)
+    tx_df = get_data("Transactions", CURRENT_SHEET_SOURCE)
 
     total_income = 0
     total_expense = 0
@@ -454,6 +483,7 @@ with tab1:
     balance = total_income - total_expense
     balance_class = "val-green" if balance >= 0 else "val-red"
 
+    # [UI顯示] 更新為使用 Default Currency
     st.markdown(f"""
     <div class="metric-container">
         <div class="metric-card">
@@ -493,9 +523,10 @@ with tab1:
             with c5: currency = st.selectbox("幣別", currency_list_custom, index=curr_index, key="form_currency", on_change=on_input_change)
             with c6: amount_org = st.number_input(f"金額 ({currency})", step=1.0, key="form_amount_org", on_change=on_input_change)
             with c7: 
-                amount_sgd = st.number_input("折合新幣 (SGD)", step=0.1, key="form_amount_sgd")
-                if currency != "SGD" and amount_org != 0:
-                     _, rate_used = calculate_sgd(100, currency, rates)
+                # [修正] 標籤顯示預設幣別
+                amount_sgd = st.number_input(f"折合 {default_currency_setting}", step=0.1, key="form_amount_sgd")
+                if currency != default_currency_setting and amount_org != 0:
+                     _, rate_used = calculate_exchange(100, currency, default_currency_setting, rates)
                      if rate_used > 0: st.caption(f"匯率: {rate_used:.4f}")
 
         note = st.text_input("備註", max_chars=20, placeholder="輸入消費內容 (限20字)...", key="form_note")
@@ -510,7 +541,7 @@ with tab1:
                     sys_now = datetime.now()
                     row = [str(date_input), tx_type, main_cat, sub_cat, payment, currency, amount_org, amount_sgd, note, str(sys_now)]
                     
-                    if append_data("Transactions", row, CURRENT_SHEET_NAME):
+                    if append_data("Transactions", row, CURRENT_SHEET_SOURCE):
                         st.success(f"✅ {tx_type}已記錄 ${amount_sgd}！")
                         st.session_state['should_clear_input'] = True
                         st.cache_data.clear()
@@ -522,7 +553,7 @@ with tab1:
 # ================= Tab 2: 收支分析 =================
 with tab2:
     st.markdown("##### 📊 收支狀況")
-    df_tx = get_data("Transactions", CURRENT_SHEET_NAME)
+    df_tx = get_data("Transactions", CURRENT_SHEET_SOURCE)
 
     if df_tx.empty:
         st.info("尚無交易資料")
@@ -601,20 +632,20 @@ with tab3:
     if 'temp_cat_map' not in st.session_state: st.session_state.temp_cat_map = cat_mapping
     if 'temp_pay_list' not in st.session_state: st.session_state.temp_pay_list = payment_list
     if 'temp_curr_list' not in st.session_state: st.session_state.temp_curr_list = currency_list_custom
-    # 預設幣別 Session State
     if 'temp_default_curr' not in st.session_state: st.session_state.temp_default_curr = default_currency_setting
 
     # 1. 固定收支
     with st.expander("🔄 每月固定收支 (薪資、房租...)", expanded=True):
         with st.popover("➕ 新增固定規則", use_container_width=True):
             st.markdown("###### 設定每月自動執行的項目")
-            if 'rec_currency' not in st.session_state: st.session_state.rec_currency = 'SGD'
+            if 'rec_currency' not in st.session_state: st.session_state.rec_currency = default_currency_setting
             if 'rec_amount_org' not in st.session_state: st.session_state.rec_amount_org = 0.0
             
             def on_rec_change():
                 c = st.session_state.rec_currency
                 a = st.session_state.rec_amount_org
-                val, _ = calculate_sgd(a, c, rates)
+                # [修正] 使用通用匯率函式
+                val, _ = calculate_exchange(a, c, default_currency_setting, rates)
                 st.session_state.rec_amount_sgd = val
 
             rec_day = st.number_input("每月幾號執行?", min_value=1, max_value=31, value=5)
@@ -623,22 +654,22 @@ with tab3:
             with c_rec2: rec_sub = st.selectbox("次類別", cat_mapping.get(rec_main, []), key="rec_sub")
             rec_pay = st.selectbox("付款方式", payment_list, key="rec_pay")
             c_r1, c_r2, c_r3 = st.columns([1.5, 2, 2])
-            with c_r1: rec_curr = st.selectbox("幣別", currency_list_custom, key="rec_currency", on_change=on_rec_change)
+            with c_r1: rec_curr = st.selectbox("幣別", currency_list_custom, index=curr_index, key="rec_currency", on_change=on_rec_change)
             with c_r2: rec_amt_org = st.number_input("原幣金額", step=1.0, key="rec_amount_org", on_change=on_rec_change)
-            with c_r3: rec_amt_sgd = st.number_input("折合新幣", step=0.1, key="rec_amount_sgd")
+            with c_r3: rec_amt_sgd = st.number_input(f"折合 {default_currency_setting}", step=0.1, key="rec_amount_sgd")
             rec_note = st.text_input("備註 (例如: 房租)", key="rec_note")
             
             if st.button("儲存規則", type="primary", use_container_width=True):
                 rec_type = "收入" if rec_main == "收入" else "支出"
                 new_rule = [rec_day, rec_type, rec_main, rec_sub, rec_pay, rec_curr, rec_amt_org, rec_note, "New", "Active"]
-                if append_data("Recurring", new_rule, CURRENT_SHEET_NAME):
+                if append_data("Recurring", new_rule, CURRENT_SHEET_SOURCE):
                     st.success("✅ 規則已新增！")
                     st.cache_data.clear()
                     time.sleep(1)
                     st.rerun()
 
         st.markdown("---")
-        rec_df = get_data("Recurring", CURRENT_SHEET_NAME)
+        rec_df = get_data("Recurring", CURRENT_SHEET_SOURCE)
         if not rec_df.empty:
             for idx, row in rec_df.iterrows():
                 header_txt = f"📅 每月 {row['Day']} 號 - {row['Main_Category']} > {row['Sub_Category']} > {row['Amount_Original']} {row['Currency']}"
@@ -648,7 +679,7 @@ with tab3:
                         st.write(f"📝 {row['Note']} | {row['Amount_Original']} {row['Currency']} ({row['Payment_Method']})")
                     with c_list2:
                         if st.button("🗑️ 刪除", key=f"del_rec_{idx}", type="primary"):
-                            if delete_recurring_rule(idx, CURRENT_SHEET_NAME):
+                            if delete_recurring_rule(idx, CURRENT_SHEET_SOURCE):
                                 st.toast("規則已刪除")
                                 st.cache_data.clear()
                                 time.sleep(1)
@@ -677,11 +708,15 @@ with tab3:
                         st.session_state.temp_cat_map[new_main_name] = updated_subs
                         st.rerun()
                     cs1, cs2 = st.columns([3, 1])
-                    with cs1: new_s = st.text_input("add", key=f"ns_{idx}", label_visibility="collapsed", placeholder="新增子類別...")
+                    with cs1: 
+                        sub_key = f"new_sub_val_{idx}"
+                        if sub_key not in st.session_state: st.session_state[sub_key] = ""
+                        new_s = st.text_input("add", key=sub_key, label_visibility="collapsed", placeholder="新增子類別...")
                     with cs2: 
                         if st.button("加入", key=f"bns_{idx}"):
                             if new_s and new_s not in st.session_state.temp_cat_map[new_main_name]:
                                 st.session_state.temp_cat_map[new_main_name].append(new_s)
+                                st.session_state[sub_key] = ""
                                 st.rerun()
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button(f"🗑️ 刪除 {new_main_name}", key=f"dm_{idx}", type="secondary", use_container_width=True):
@@ -696,13 +731,18 @@ with tab3:
         if len(u_pays) < len(pays):
             st.session_state.temp_pay_list = u_pays
             st.rerun()
+        
         c_p1, c_p2 = st.columns([3,1])
-        with c_p1: np = st.text_input("np", label_visibility="collapsed", placeholder="新增付款方式")
+        with c_p1: 
+            if "new_pay_val" not in st.session_state: st.session_state.new_pay_val = ""
+            np = st.text_input("np", key="new_pay_val", label_visibility="collapsed", placeholder="新增付款方式")
         with c_p2: 
             if st.button("加入", key="bp"):
                 if np and np not in st.session_state.temp_pay_list:
                     st.session_state.temp_pay_list.append(np)
+                    st.session_state.new_pay_val = ""
                     st.rerun()
+        
         st.divider()
         st.subheader("常用幣別")
         curs = st.session_state.temp_curr_list
@@ -710,12 +750,16 @@ with tab3:
         if len(u_curs) < len(curs):
             st.session_state.temp_curr_list = u_curs
             st.rerun()
+        
         c_c1, c_c2 = st.columns([3,1])
-        with c_c1: nc = st.text_input("nc", label_visibility="collapsed", placeholder="新增幣別")
+        with c_c1: 
+            if "new_curr_val" not in st.session_state: st.session_state.new_curr_val = ""
+            nc = st.text_input("nc", key="new_curr_val", label_visibility="collapsed", placeholder="新增幣別")
         with c_c2:
             if st.button("加入", key="bc"):
                 if nc and nc not in st.session_state.temp_curr_list:
                     st.session_state.temp_curr_list.append(nc)
+                    st.session_state.new_curr_val = ""
                     st.rerun()
                     
         st.markdown("<br>", unsafe_allow_html=True)
@@ -761,7 +805,7 @@ with tab3:
         if len(final_df) > 0:
             final_df.at[0, "Default_Currency"] = st.session_state.temp_default_curr
         
-        if save_settings_data(final_df, CURRENT_SHEET_NAME):
+        if save_settings_data(final_df, CURRENT_SHEET_SOURCE):
             st.toast("設定已儲存！", icon="💾")
             st.cache_data.clear()
             del st.session_state.temp_cat_map
