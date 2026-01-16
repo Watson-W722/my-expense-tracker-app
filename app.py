@@ -209,7 +209,7 @@ with st.sidebar:
     st.caption(f"目前連線帳本：{get_sheet_name()}")
     
     tz_options = {
-        "台灣/北京 (UTC+8)": 8,
+        "台灣/新加坡 (UTC+8)": 8,
         "日本/韓國 (UTC+9)": 9,
         "泰國/越南 (UTC+7)": 7,
         "美東 (UTC-4)": -4,
