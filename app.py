@@ -816,6 +816,4 @@ with tab3:
             st.session_state.temp_default_curr = new_def_curr
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("💾 儲存所有設定", type="primary", use_container_width=True):
-        save_all_to_sheet()
-        st.rerun()
+    st.caption("✅ 提示：您的任何修改（新增/刪除/變更）都會 **自動即時儲存** 至 Google Sheet。")
