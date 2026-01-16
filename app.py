@@ -153,7 +153,11 @@ def show_login_screen():
                 else:
                     st.warning("請輸入名稱")
             with st.expander("❓ 如何開始？"):
-                st.markdown("請將您的 Google Sheet 分享給以下 Email (編輯者)：")
+                st.markdown("""
+                1. 建立一個 Google Sheet 副本。
+                2. 點擊右上角 **「共用」**。
+                3. 將此 Email 加入為 **「編輯者」**：
+                """)
                 if "gcp_service_account" in st.secrets:
                     st.code(st.secrets["gcp_service_account"]["client_email"], language="text")
 
