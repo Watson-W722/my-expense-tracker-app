@@ -171,7 +171,7 @@ def show_login_screen():
 
     with col_R:
         st.success("我已經準備好了")
-        st.markdown("<div class='step-text'>3. 輸入您的 Google Sheet 檔案名稱</div>", unsafe_allow_html=True)
+        st.markdown("<div class='step-text'> 輸入您的 Google Sheet 檔案名稱</div>", unsafe_allow_html=True)
         sheet_input = st.text_input("檔案名稱", placeholder="例如：王小明的記帳本")
         
         st.markdown("<br>", unsafe_allow_html=True)
