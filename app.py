@@ -12,7 +12,7 @@ st.set_page_config(page_title="我的記帳本", layout="wide", page_icon="💰"
 # ==========================================
 # [設定區] 範本連結
 # ==========================================
-TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1XyZ_example_ID_copy/copy" 
+TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1j7WM4A6bgRr1S-0BvHYPw9Xp5oXs0Ikp969-Ys65JL0/copy" 
 
 # ==========================================
 # 0. UI 美化樣式
