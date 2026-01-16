@@ -47,10 +47,10 @@ st.markdown("""
     .metric-value { font-size: 1.6rem; font-weight: 700; color: #2c3e50; }
     .val-green { color: #2ecc71; }
     .val-red { color: #e74c3c; }
-    /* 按鈕樣式 */          
+    /* 按鈕樣式 */
     div.stButton > button { border-radius: 8px; font-weight: 600; }
-
-    /* Tab 樣式微調 */        
+    
+    /* Tab 樣式微調 */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] {
         height: 50px;
@@ -66,14 +66,25 @@ st.markdown("""
         border-bottom: none;
     }
     .stTabs [aria-selected="true"] {
-        border-top: 3px solid #0d6efd;
+        background-color: #ffffff;
         color: #0d6efd !important;
+        border-top: 3px solid #0d6efd;
+    }
+    /* 登入畫面樣式 */
+    .login-container {
+        max-width: 500px;
+        margin: 50px auto;
+        padding: 30px;
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        text-align: center;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. 核心連線模組 (支援動態檔名)
+# 1. 核心連線模組
 # ==========================================
 @st.cache_resource
 def get_gspread_client():
@@ -89,21 +100,109 @@ def get_gspread_client():
         try:
             creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", scope)
         except FileNotFoundError:
-            st.error("❌ 找不到金鑰！請檢查 service_account.json 或 Secrets。")
             return None
     return gspread.authorize(creds)
 
-# [關鍵] 取得設定檔中的試算表名稱，若無則用預設值
-def get_sheet_name():
-    return st.secrets.get("spreadsheet_name", "My_Expense_Tracker")
+# ==========================================
+# [關鍵新功能] 動態連接管理機制
+# ==========================================
+def check_connection():
+    """
+    檢查是否已連接到 Google Sheet。
+    優先順序：
+    1. Session State (當前工作階段)
+    2. URL Query Params (網址參數 ?sheet=xxx)
+    """
+    
+    # 1. 嘗試從 URL 獲取
+    # 注意：Streamlit 新版使用 st.query_params
+    url_sheet_name = st.query_params.get("sheet", None)
+    
+    if "current_sheet_name" not in st.session_state:
+        st.session_state.current_sheet_name = url_sheet_name
 
+    # 2. 如果還是沒有名稱，顯示登入畫面
+    if not st.session_state.current_sheet_name:
+        show_login_screen()
+        st.stop() # 停止執行下方程式碼
+
+    # 3. 有名稱了，嘗試連線驗證
+    client = get_gspread_client()
+    if not client:
+        st.error("❌ 系統錯誤：無法讀取機器人金鑰 (Secrets)。")
+        st.stop()
+
+    try:
+        # 嘗試開啟試算表
+        sheet = client.open(st.session_state.current_sheet_name)
+        # 若成功，更新 URL 讓使用者可以存書籤
+        st.query_params["sheet"] = st.session_state.current_sheet_name
+        return sheet
+    except Exception as e:
+        # 連線失敗 (可能檔名打錯，或沒分享給機器人)
+        st.error(f"❌ 連線失敗：找不到名為「{st.session_state.current_sheet_name}」的試算表。")
+        st.warning("請確認：\n1. Google Sheet 名稱是否完全正確？\n2. 是否已將試算表「共用」給機器人 Email？")
+        
+        # 顯示機器人 Email 方便複製
+        if "gcp_service_account" in st.secrets:
+            bot_email = st.secrets["gcp_service_account"]["client_email"]
+            st.code(bot_email, language="text")
+            
+        if st.button("⬅️ 返回重新輸入"):
+            st.session_state.current_sheet_name = None
+            st.query_params.clear()
+            st.rerun()
+        st.stop()
+
+def show_login_screen():
+    st.markdown("""
+    <div class="login-container">
+        <h2>👋 歡迎使用記帳本</h2>
+        <p style="color:#666;">請輸入您的 Google Sheet 名稱以開始記帳</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    with st.container():
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            sheet_input = st.text_input("Google Sheet 檔案名稱", placeholder="例如：王小明的記帳本")
+            
+            if st.button("🚀 連接帳本", type="primary", use_container_width=True):
+                if sheet_input:
+                    st.session_state.current_sheet_name = sheet_input
+                    st.rerun()
+                else:
+                    st.warning("請輸入名稱")
+            
+            with st.expander("❓ 如何開始？"):
+                st.markdown("""
+                1. 建立一個 Google Sheet 副本。
+                2. 點擊右上角 **「共用」**。
+                3. 將此 Email 加入為 **「編輯者」**：
+                """)
+                if "gcp_service_account" in st.secrets:
+                    st.code(st.secrets["gcp_service_account"]["client_email"], language="text")
+                else:
+                    st.warning("尚未設定 Secrets 金鑰")
+
+# ==========================================
+# 程式進入點：先檢查連線
+# ==========================================
+# 這個函式會確保只有連線成功才會往下執行，並回傳 sheet 物件
+active_sheet_obj = check_connection()
+
+# 為了讓後面的函式能拿到目前的 sheet 名稱
+CURRENT_SHEET_NAME = st.session_state.current_sheet_name
+
+# ==========================================
+# 資料讀寫函式 (修改為使用動態名稱)
+# ==========================================
 @st.cache_data
 def get_data(worksheet_name):
     client = get_gspread_client()
-    if not client: return pd.DataFrame()
     try:
-        # [關鍵修正] 使用動態名稱
-        sheet = client.open(get_sheet_name())
+        # 使用全域變數 CURRENT_SHEET_NAME
+        sheet = client.open(CURRENT_SHEET_NAME)
         worksheet = sheet.worksheet(worksheet_name)
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
@@ -125,8 +224,7 @@ def get_data(worksheet_name):
 def append_data(worksheet_name, row_data):
     client = get_gspread_client()
     try:
-        # [關鍵修正] 使用動態名稱
-        sheet = client.open(get_sheet_name())
+        sheet = client.open(CURRENT_SHEET_NAME)
         worksheet = sheet.worksheet(worksheet_name)
         worksheet.append_row(row_data)
         return True
@@ -137,8 +235,7 @@ def append_data(worksheet_name, row_data):
 def save_settings_data(new_settings_df):
     client = get_gspread_client()
     try:
-        # [關鍵修正] 使用動態名稱
-        sheet = client.open(get_sheet_name())
+        sheet = client.open(CURRENT_SHEET_NAME)
         worksheet = sheet.worksheet("Settings")
         worksheet.clear()
         new_settings_df = new_settings_df.fillna("")
@@ -152,8 +249,7 @@ def save_settings_data(new_settings_df):
 def update_recurring_last_run(row_index, month_str):
     client = get_gspread_client()
     try:
-        # [關鍵修正] 使用動態名稱
-        sheet = client.open(get_sheet_name())
+        sheet = client.open(CURRENT_SHEET_NAME)
         worksheet = sheet.worksheet("Recurring")
         worksheet.update_cell(row_index + 2, 9, month_str)
         return True
@@ -163,8 +259,7 @@ def update_recurring_last_run(row_index, month_str):
 def delete_recurring_rule(row_index):
     client = get_gspread_client()
     try:
-        # [關鍵修正] 使用動態名稱
-        sheet = client.open(get_sheet_name())
+        sheet = client.open(CURRENT_SHEET_NAME)
         worksheet = sheet.worksheet("Recurring")
         worksheet.delete_rows(row_index + 2)
         return True
@@ -215,11 +310,19 @@ def calculate_sgd(amount, currency, rates):
 # --- 側邊欄時區設定 ---
 with st.sidebar:
     st.header("🌍 地區設定")
-    # [新增] 顯示目前連線的試算表名稱，方便除錯
-    st.caption(f"目前連線帳本：{get_sheet_name()}")
+    # 顯示目前連接的帳本名稱
+    st.success(f"📘 帳本：{CURRENT_SHEET_NAME}")
+    
+    # 登出按鈕
+    if st.button("🚪 切換帳本 (登出)"):
+        st.session_state.current_sheet_name = None
+        st.query_params.clear()
+        st.rerun()
+        
+    st.divider()
     
     tz_options = {
-        "台灣/新加坡 (UTC+8)": 8,
+        "台灣/北京 (UTC+8)": 8,
         "日本/韓國 (UTC+9)": 9,
         "泰國/越南 (UTC+7)": 7,
         "美東 (UTC-4)": -4,
@@ -348,7 +451,6 @@ with tab1:
         val, _ = calculate_sgd(a, c, rates)
         st.session_state.form_amount_sgd = val
 
-    # --- 計算數據 ---
     user_today = get_user_date(user_offset)
     current_month_str = user_today.strftime("%Y-%m")
     
@@ -548,7 +650,6 @@ with tab3:
         rec_df = get_data("Recurring")
         if not rec_df.empty:
             for idx, row in rec_df.iterrows():
-                # [關鍵修正] 顯示格式調整
                 header_txt = f"📅 每月 {row['Day']} 號 - {row['Main_Category']} > {row['Sub_Category']} > {row['Amount_Original']} {row['Currency']}"
                 with st.expander(header_txt):
                     c_list1, c_list2 = st.columns([4, 1])
