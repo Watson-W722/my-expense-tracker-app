@@ -631,7 +631,7 @@ with tab2:
 
         # st.markdown("---")
         with st.expander("🗓️ 查看詳細月份", expanded=True):
-            target_month = st.selectbox("", sorted(all_months, reverse=True))
+            target_month = st.selectbox("選擇月份", sorted(all_months, reverse=True))
             
             month_data = df_tx[df_tx['Month'] == target_month]
             monthly_income = month_data[month_data['Type'] == '收入']['Amount_Def'].sum()
