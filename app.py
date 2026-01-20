@@ -652,11 +652,6 @@ with tab2:
             </div>
         </div>
         """, unsafe_allow_html=True)
-        
-        # [新增] 除錯用明細表
-        with st.expander("🔍 檢視本月明細 (除錯用)"):
-            debug_df = month_data[['Date', 'Main_Category', 'Sub_Category', 'Amount_Original', 'Currency', 'Amount_Def', 'Note']].sort_values(by='Date', ascending=False)
-            st.dataframe(debug_df, use_container_width=True)
 
         expense_only_data = month_data[month_data['Type'] != '收入']
         if not expense_only_data.empty:
@@ -670,6 +665,11 @@ with tab2:
                 st.plotly_chart(fig_pie, use_container_width=True)
             else:
                 st.info("本月支出相抵後無正向金額，無法顯示圓餅圖。")
+                
+        # [新增] 除錯用明細表
+        with st.expander("🔍 檢視本月明細 (除錯用)"):
+            debug_df = month_data[['Date', 'Main_Category', 'Sub_Category', 'Amount_Original', 'Currency', 'Amount_Def', 'Note']].sort_values(by='Date', ascending=False)
+            st.dataframe(debug_df, use_container_width=True)
 
 # ================= Tab 3: 設定管理 =================
 with tab3:
