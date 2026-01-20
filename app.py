@@ -522,15 +522,15 @@ with tab1:
     <div class="metric-container">
         <div class="metric-card">
             <span class="metric-label">本月總收入 ({default_currency_setting})</span>
-            <span class="metric-value">${total_income:,.0f}</span>
+            <span class="metric-value">${total_income:,.2f}</span>
         </div>
         <div class="metric-card">
             <span class="metric-label">已支出 ({default_currency_setting})</span>
-            <span class="metric-value">${total_expense:,.0f}</span>
+            <span class="metric-value">${total_expense:,.2f}</span>
         </div>
         <div class="metric-card">
             <span class="metric-label">剩餘可用</span>
-            <span class="metric-value {balance_class}">${balance:,.0f}</span>
+            <span class="metric-value {balance_class}">${balance:,.2f}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -632,15 +632,15 @@ with tab2:
         <div class="metric-container">
             <div class="metric-card" style="border-left: 5px solid #2ecc71;">
                 <span class="metric-label">總收入 ({default_currency_setting})</span>
-                <span class="metric-value">${monthly_income:,.0f}</span>
+                <span class="metric-value">${monthly_income:,.2f}</span>
             </div>
             <div class="metric-card" style="border-left: 5px solid #ff6b6b;">
                 <span class="metric-label">總支出 ({default_currency_setting})</span>
-                <span class="metric-value">${monthly_expense:,.0f}</span>
+                <span class="metric-value">${monthly_expense:,.2f}</span>
             </div>
             <div class="metric-card">
                 <span class="metric-label">結餘</span>
-                <span class="metric-value">${monthly_income - monthly_expense:,.0f}</span>
+                <span class="metric-value">${monthly_income - monthly_expense:.2f}</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
