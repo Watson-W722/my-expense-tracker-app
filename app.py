@@ -5,7 +5,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, date, timedelta, timezone
 import time
 import os
-import hashlib
 
 # --- 頁面設定 ---
 st.set_page_config(page_title="我的記帳本", layout="wide", page_icon="💰")
@@ -103,39 +102,17 @@ def get_gspread_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds = None
     try:
-        # 優先嘗試從 Secrets 讀取 (雲端環境)
         if "gcp_service_account" in st.secrets:
-            # [關鍵修復] 將 Secrets 轉為普通字典，並修正 private_key 的換行符號
-            creds_dict = dict(st.secrets["gcp_service_account"])
-            if "private_key" in creds_dict:
-                creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-            
+            creds_dict = st.secrets["gcp_service_account"]
             creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    except Exception as e:
-        print(f"Secret loading error: {e}")
+    except Exception:
         pass
-
-    # 如果 Secrets 失敗，嘗試讀取本地檔案 (本地開發環境)
     if creds is None:
         try:
             creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", scope)
         except FileNotFoundError:
             return None
-            
     return gspread.authorize(creds)
-
-def get_sheet_title_safe(source_str):
-    """嘗試抓取 Google Sheet 的標題名稱"""
-    client = get_gspread_client()
-    try:
-        if source_str.startswith("http"):
-            sh = client.open_by_url(source_str)
-            return sh.title
-        else:
-            sh = client.open(source_str)
-            return sh.title
-    except:
-        return "我的記帳本" # 抓不到時的預設值
 
 def open_spreadsheet(client, source_str):
     if source_str.startswith("http"):
@@ -143,293 +120,72 @@ def open_spreadsheet(client, source_str):
     else:
         return client.open(source_str)
 
-def hash_password(password):
-    return hashlib.sha256(str(password).encode('utf-8')).hexdigest()
-
-
-# @st.cache_resource
-# def get_gspread_client():
-#     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-#     creds = None
-#     try:
-#         if "gcp_service_account" in st.secrets:
-#             creds_dict = st.secrets["gcp_service_account"]
-#             creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-#     except Exception:
-#         pass
-#     if creds is None:
-#         try:
-#             creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", scope)
-#         except FileNotFoundError:
-#             return None
-#     return gspread.authorize(creds)
-
-# def open_spreadsheet(client, source_str):
-#     if source_str.startswith("http"):
-#         return client.open_by_url(source_str)
-#     else:
-#         return client.open(source_str)
-
-# def check_connection():
-#     url_sheet_name = st.query_params.get("sheet", None)
+def check_connection():
+    url_sheet_name = st.query_params.get("sheet", None)
     
-#     if "current_sheet_name" not in st.session_state:
-#         st.session_state.current_sheet_name = url_sheet_name
+    if "current_sheet_name" not in st.session_state:
+        st.session_state.current_sheet_name = url_sheet_name
 
-#     if not st.session_state.current_sheet_name:
-#         show_login_screen()
-#         st.stop()
+    if not st.session_state.current_sheet_name:
+        show_login_screen()
+        st.stop()
 
-#     client = get_gspread_client()
-#     if not client:
-#         st.error("❌ 系統錯誤：無法讀取機器人金鑰。")
-#         st.stop()
-
-#     try:
-#         sheet = open_spreadsheet(client, st.session_state.current_sheet_name)
-#         st.query_params["sheet"] = st.session_state.current_sheet_name
-#         return st.session_state.current_sheet_name, sheet.title
-#     except Exception as e:
-#         st.error(f"❌ 連線失敗")
-#         st.warning("請確認網址或名稱正確，且已分享給機器人。")
-#         if "gcp_service_account" in st.secrets:
-#             st.code(st.secrets["gcp_service_account"]["client_email"], language="text")
-#         if st.button("⬅️ 返回"):
-#             st.session_state.current_sheet_name = None
-#             st.query_params.clear()
-#             st.rerun()
-#         st.stop()
-
-# def show_login_screen():
-#     bot_email = "尚未設定 Secrets"
-#     if "gcp_service_account" in st.secrets:
-#         bot_email = st.secrets["gcp_service_account"]["client_email"]
-
-#     st.markdown("""
-#     <div class="login-container">
-#         <h2 style="margin-bottom: 20px;">👋 歡迎使用記帳本</h2>
-#     """, unsafe_allow_html=True)
-
-#     col_L, col_R = st.columns([1, 1])
-#     with col_L:
-#         st.info("我是新使用者")
-#         st.markdown("<div class='step-text'>1. 下載專屬範本</div>", unsafe_allow_html=True)
-#         if "http" in TEMPLATE_URL:
-#             st.link_button("📄 建立副本", TEMPLATE_URL, type="primary", use_container_width=True)
-#         else:
-#             st.warning("⚠️ 未設定範本連結")
-#         st.markdown("<div class='step-text'>2. 共用給機器人：</div>", unsafe_allow_html=True)
-#         st.code(bot_email, language="text")
-
-#     with col_R:
-#         st.success("我已經準備好了")
-#         st.markdown("<div class='step-text'>3. 輸入 <b>Google Sheet 網址</b></div>", unsafe_allow_html=True)
-#         sheet_input = st.text_input("連結或名稱", placeholder="https://docs.google.com/...")
-        
-#         st.markdown("<br>", unsafe_allow_html=True)
-#         if st.button("🚀 連接帳本", type="primary", use_container_width=True):
-#             if sheet_input:
-#                 st.session_state.current_sheet_name = sheet_input.strip()
-#                 st.rerun()
-#             else:
-#                 st.warning("請輸入內容")
-#     st.markdown("</div>", unsafe_allow_html=True)
-
-# CURRENT_SHEET_SOURCE, DISPLAY_TITLE = check_connection()
-
-# ==========================================
-# [核心] 使用者權限與訂閱管理
-# ==========================================
-def handle_user_login(email, password, user_sheet_name=None, nickname=None, is_register=False):
     client = get_gspread_client()
-    if not client: return False, "API Error (請檢查 Secrets)"
-
-    # [檢查] 確保 admin_sheet_url 存在
-    admin_url = st.secrets.get("admin_sheet_url")
-    if not admin_url:
-        return True, {"Plan": "Dev", "Status": "Active"} 
+    if not client:
+        st.error("❌ 系統錯誤：無法讀取機器人金鑰。")
+        st.stop()
 
     try:
-        admin_book = client.open_by_url(admin_url)
-        users_sheet = admin_book.worksheet("Users")
-        records = users_sheet.get_all_records()
-        df_users = pd.DataFrame(records)
-
-        # [修改 1] 定義 DataFrame 時加入 "Nickname"
-        if not records:
-            df_users = pd.DataFrame(columns=["Email", "Sheet_Name", "Join_Date", "Password_Hash", "Status", "Expire_Date", "Plan", "Nickname"])
-        else:
-            df_users = pd.DataFrame(records)
-            # 兼容舊資料：如果舊資料沒 Nickname 欄位，補上空白
-            if "Nickname" not in df_users.columns:
-                df_users["Nickname"] = ""
-        
-        user_row = df_users[df_users["Email"] == email]
-        pwd_hash = hash_password(password)
-        today = datetime.now().date()
-        
-        if user_row.empty:
-            if is_register:
-                expire_date = today + timedelta(days=TRIAL_DAYS)
-
-                # [修改 2] 處理暱稱邏輯
-                final_nickname = nickname if nickname else email.split("@")[0]
-                new_user = {
-                    "Email": email,
-                    "Sheet_Name": user_sheet_name if user_sheet_name else "",
-                    "Join_Date": str(today),
-                    "Password_Hash": pwd_hash,
-                    "Status": "Active",
-                    "Expire_Date": str(expire_date),
-                    "Plan": "Trial",
-                    "Nickname": final_nickname # 加入這行
-                } 
-                # [修改 3] 寫入資料庫時加入 Nickname
-                row_data = [
-                    new_user["Email"], new_user["Sheet_Name"], new_user["Join_Date"], 
-                    new_user["Password_Hash"], new_user["Status"], new_user["Expire_Date"], new_user["Plan"],
-                    new_user["Plan"], new_user["Nickname"] # 加入這行
-                ]
-
-                # [修改 4] 防呆：如果資料庫還沒加 H 欄，怕寫入失敗，做個 try-catch
-                try:
-                    users_sheet.append_row(row_data)
-                except:
-                    users_sheet.append_row(row_data[:-1])
-                    
-                return True, new_user
-            else:
-                return False, "User not found"
-        else:
-            # [修改 5] 登入成功時，如果資料庫的 Nickname 是空的，暫時用 Email 前綴代替
-            user_info = user_row.iloc[0].to_dict()
-            if pd.isna(user_info.get("Nickname")) or user_info.get("Nickname") == "":
-                user_info["Nickname"] = email.split("@")[0]
-            stored_hash = str(user_info.get("Password_Hash", ""))
-            
-            if stored_hash != pwd_hash:
-                return False, "Password Incorrect"
-
-            # if user_info["Plan"] == "VIP":
-            #     return True, user_info
-            
-            # try:
-            #     expire_dt = datetime.strptime(user_info["Expire_Date"], "%Y-%m-%d").date()
-            #     if today > expire_dt:
-            #         return False, "Expired"
-            #     else:
-            #         return True, user_info
-            # except:
-            #     return False, "Date Error"
-                
+        sheet = open_spreadsheet(client, st.session_state.current_sheet_name)
+        st.query_params["sheet"] = st.session_state.current_sheet_name
+        return st.session_state.current_sheet_name, sheet.title
     except Exception as e:
-        return False, f"Login Error: {e}"
-
-# ==========================================
-# 登入介面邏輯 (已修改)
-# ==========================================
-def login_flow():
-    if "is_logged_in" in st.session_state and st.session_state.is_logged_in:
-        # [修改 1] 登入後，抓取真正的帳本標題並存起來
-        if "real_book_title" not in st.session_state:
-            with st.spinner("載入帳本中..."):
-                st.session_state.real_book_title = get_sheet_title_safe(st.session_state.user_info["Sheet_Name"])
-        # 回傳真正的標題
-        return st.session_state.user_info["Sheet_Name"], st.session_state.real_book_title
-
-    if "login_mode" not in st.session_state: st.session_state.login_mode = "login"
-
-    st.markdown("""<div class="login-container"><h2>👋 歡迎使用記帳本</h2>""", unsafe_allow_html=True)
-    
-    col_tab1, col_tab2 = st.columns(2)
-    with col_tab1:
-        if st.button("登入", use_container_width=True, type="primary" if st.session_state.login_mode == "login" else "secondary"):
-            st.session_state.login_mode = "login"
-            st.rerun()
-    with col_tab2:
-        if st.button("註冊新帳號", use_container_width=True, type="primary" if st.session_state.login_mode == "register" else "secondary"):
-            st.session_state.login_mode = "register"
-            st.rerun()
-    
-    # ------------------ 修改開始: 設定說明區域 ------------------
-    st.info("💡 新用戶請先設定您的記帳本")
-    with st.expander("👉 點此查看設定步驟 (含圖文教學)"):
-        st.markdown(f"""
-        **步驟 1：建立記帳本副本**  
-        請點擊連結建立一份屬於您的 Google Sheet：  
-        👉 [**[點此建立記帳本副本（下載後可更名）]**]({TEMPLATE_URL})
-        """)
-        #st.markdown("---")        
-        st.markdown("**步驟 2：共用權限給機器人**")
-        st.write("請將您的記帳本「共用」給以下機器人 Email (權限設為 **編輯者/Editor**)，系統才能寫入資料。")
-        
+        st.error(f"❌ 連線失敗")
+        st.warning("請確認網址或名稱正確，且已分享給機器人。")
         if "gcp_service_account" in st.secrets:
             st.code(st.secrets["gcp_service_account"]["client_email"], language="text")
-        else:
-            st.warning("⚠️ 系統尚未設定 Secrets，無法顯示機器人 Email")
-        with st. expander("**操作示意圖：**"):
-          # 圖片處理：
-          # 1. 使用「內嵌 Expander」作為縮圖機制
-          # 2. 只有使用者點擊展開時，才顯示完整寬度的圖片 (use_container_width=True)
-          # 3. 這樣電腦版不會佔滿畫面，手機版點開後又能清晰查看
-          if os.path.exists("guide.png"):
-              with st.markdown("📷 點擊查看操作圖解 (點擊展開圖片)"):
-                  st.image("guide.png", caption="請參照圖中紅框處共用給機器人", use_container_width=True)
-          else:
-              # 若無圖片，僅提示
-              st.caption("🚫 (提示：將 guide.png 放入專案資料夾即可顯示圖解)")
-    # ------------------ 修改結束 ------------------
+        if st.button("⬅️ 返回"):
+            st.session_state.current_sheet_name = None
+            st.query_params.clear()
+            st.rerun()
+        st.stop()
 
-    with st.container():
-        email_input = st.text_input("Email", placeholder="name@example.com").strip()
-        password_input = st.text_input("密碼", type="password", placeholder="設定您的密碼")
+def show_login_screen():
+    bot_email = "尚未設定 Secrets"
+    if "gcp_service_account" in st.secrets:
+        bot_email = st.secrets["gcp_service_account"]["client_email"]
+
+    st.markdown("""
+    <div class="login-container">
+        <h2 style="margin-bottom: 20px;">👋 歡迎使用記帳本</h2>
+    """, unsafe_allow_html=True)
+
+    col_L, col_R = st.columns([1, 1])
+    with col_L:
+        st.info("我是新使用者")
+        st.markdown("<div class='step-text'>1. 下載專屬範本</div>", unsafe_allow_html=True)
+        if "http" in TEMPLATE_URL:
+            st.link_button("📄 建立副本", TEMPLATE_URL, type="primary", use_container_width=True)
+        else:
+            st.warning("⚠️ 未設定範本連結")
+        st.markdown("<div class='step-text'>2. 共用給機器人：</div>", unsafe_allow_html=True)
+        st.code(bot_email, language="text")
+
+    with col_R:
+        st.success("我已經準備好了")
+        st.markdown("<div class='step-text'>3. 輸入 <b>Google Sheet 網址</b></div>", unsafe_allow_html=True)
+        sheet_input = st.text_input("連結或名稱", placeholder="https://docs.google.com/...")
         
-        if st.session_state.login_mode == "register":
-            # [修改 2] 新增暱稱輸入框
-            nickname_input = st.text_input("您的暱稱 (顯示在側邊欄)", placeholder="例如：小明")
-            sheet_input = st.text_input("Google Sheet 網址")
-            
-            if st.button("✨ 註冊並登入", ...):
-                # [修改 3] 傳入 nickname 參數
-                if email_input and password_input and sheet_input and nickname_input:
-                     success, result = handle_user_login(email_input, password_input, user_sheet_name=None, nickname=None, is_register=False)
-                with st.spinner("註冊中..."):
-                        success, result = handle_user_login(email_input, password_input, sheet_input, is_register=True)
-                        if success:
-                            st.session_state.is_logged_in = True
-                            st.session_state.user_info = result
-                            st.success("註冊成功！")
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.error(f"註冊失敗：{result}")
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🚀 連接帳本", type="primary", use_container_width=True):
+            if sheet_input:
+                st.session_state.current_sheet_name = sheet_input.strip()
+                st.rerun()
             else:
-                st.warning("請填寫所有欄位")
-
-        else:
-            if st.button("🚀 登入", type="primary", use_container_width=True):
-                if email_input and password_input:
-                    with st.spinner("驗證中..."):
-                        success, result = handle_user_login(email_input, password_input, is_register=False)
-                        if success:
-                            st.session_state.is_logged_in = True
-                            st.session_state.user_info = result
-                            st.success("登入成功！")
-                            time.sleep(0.5)
-                            st.rerun()
-                        else:
-                            if result == "Password Incorrect": st.error("❌ 密碼錯誤")
-                            elif result == "User not found": st.error("❌ 帳號不存在，請先註冊")
-                            # elif result == "Expired": st.error("⛔ 您的訂閱已過期，請續費")
-                            else: st.error(f"登入失敗: {result}")
-                else:
-                    st.warning("請輸入 Email 和密碼")
-
+                st.warning("請輸入內容")
     st.markdown("</div>", unsafe_allow_html=True)
-    st.stop()
 
-CURRENT_SHEET_SOURCE, DISPLAY_TITLE = login_flow()
-
+CURRENT_SHEET_SOURCE, DISPLAY_TITLE = check_connection()
 
 # ==========================================
 # 資料讀寫函式 (快取時間縮短為 5 分鐘)
